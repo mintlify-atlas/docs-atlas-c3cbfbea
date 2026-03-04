@@ -1,0 +1,116 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Turbine Python Client",
+  "projectDescription": "Python SDK for building trading bots on Turbine's gasless prediction markets CLOB.",
+  "theme": "palm",
+  "primaryColor": "#7c7c7c",
+  "lightColor": "#070707",
+  "darkColor": "#d9d9d9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/prediction-markets",
+              "concepts/authentication",
+              "concepts/order-types",
+              "concepts/gasless-trading"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/first-trade",
+              "guides/building-bots",
+              "guides/market-data",
+              "guides/websocket-streams",
+              "guides/claiming-winnings",
+              "guides/deployment"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              "examples/price-action-bot",
+              "examples/market-maker",
+              "examples/position-monitoring"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Client",
+            "pages": [
+              "api/turbine-client",
+              "api/websocket-client"
+            ]
+          },
+          {
+            "group": "Core Methods",
+            "pages": [
+              "api/methods/orders",
+              "api/methods/market-data",
+              "api/methods/positions",
+              "api/methods/relayer"
+            ]
+          },
+          {
+            "group": "Types",
+            "pages": [
+              "api/types/order-types",
+              "api/types/market-types",
+              "api/types/data-types",
+              "api/types/exceptions"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Gasless trading - no RPC, no gas tokens needed",
+    "EIP-712 order signing with automatic nonce management",
+    "Real-time WebSocket streaming for orderbook updates",
+    "Built-in market rotation and claiming for 15-min markets",
+    "Example bots including price action and market maker",
+    "Full TypeScript-style type hints with dataclasses"
+  ],
+  "publicApiSurface": [
+    "TurbineClient",
+    "TurbineWSClient",
+    "get_markets()",
+    "get_orderbook()",
+    "get_trades()",
+    "create_limit_buy()",
+    "create_limit_sell()",
+    "post_order()",
+    "cancel_order()",
+    "get_user_positions()",
+    "approve_usdc_for_settlement()",
+    "claim_winnings()",
+    "batch_claim_winnings()",
+    "get_quick_market()",
+    "OrderArgs",
+    "SignedOrder",
+    "Side",
+    "Outcome",
+    "Market",
+    "Trade",
+    "Position"
+  ]
+}
