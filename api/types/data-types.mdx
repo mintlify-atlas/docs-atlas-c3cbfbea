@@ -542,27 +542,133 @@ Creates a `SettlementStatus` instance from an API response dictionary.
 
 ## AssetPrice
 
-Current price for an asset.
+Current price data for an asset.
 
-<ResponseField name="price" type="float">
-  Asset price in USD
+<ResponseField name="asset" type="string">
+  Asset symbol (e.g., "BTC", "ETH")
+</ResponseField>
+
+<ResponseField name="price" type="int">
+  Current price scaled by 1e6 (e.g., 97250000000 = $97,250.00)
 </ResponseField>
 
 <ResponseField name="timestamp" type="int">
-  Price timestamp
+  Unix timestamp when price was fetched
 </ResponseField>
 
 ### Methods
 
-#### `from_dict(data)`
-
-Creates an `AssetPrice` instance from an API response dictionary.
+<ResponseField name="from_dict(data)" type="classmethod">
+  Creates an `AssetPrice` instance from an API response dictionary.
+</ResponseField>
 
 ### Example
 
 ```python
-btc_price = client.get_asset_price("BTC")
+from turbine_client import TurbineClient
 
-print(f"BTC: ${btc_price.price:,.2f}")
-print(f"Updated: {btc_price.timestamp}")
+client = TurbineClient(host="https://api.turbinefi.com", chain_id=137)
+
+# Get current BTC price
+price = client.get_quick_market_price(asset="BTC")
+print(f"BTC: ${price.price / 1e6:,.2f}")
+print(f"Updated: {price.timestamp}")
+```
+
+## FailedClaim
+
+A claim transaction that failed.
+
+<ResponseField name="tx_hash" type="string">
+  Transaction hash of the failed claim
+</ResponseField>
+
+<ResponseField name="user_address" type="string">
+  User's wallet address
+</ResponseField>
+
+<ResponseField name="market_address" type="string">
+  Market contract address
+</ResponseField>
+
+<ResponseField name="market_id" type="string">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="payout" type="int">
+  Expected payout amount (6 decimals)
+</ResponseField>
+
+<ResponseField name="winning_outcome" type="int">
+  Winning outcome (0=YES, 1=NO)
+</ResponseField>
+
+<ResponseField name="submitted_at" type="int">
+  Unix timestamp when claim was submitted
+</ResponseField>
+
+### Methods
+
+<ResponseField name="from_dict(data)" type="classmethod">
+  Creates a `FailedClaim` instance from an API response dictionary.
+</ResponseField>
+
+### Example
+
+```python
+# Get failed claims
+failed = client.get_failed_claims()
+for claim in failed:
+    print(f"Failed claim: {claim.tx_hash}")
+    print(f"  Market: {claim.market_id}")
+    print(f"  Payout: ${claim.payout / 1e6:.2f}")
+```
+
+## PendingClaim
+
+A claim transaction pending confirmation.
+
+<ResponseField name="tx_hash" type="string">
+  Transaction hash of the pending claim
+</ResponseField>
+
+<ResponseField name="user_address" type="string">
+  User's wallet address
+</ResponseField>
+
+<ResponseField name="market_address" type="string">
+  Market contract address
+</ResponseField>
+
+<ResponseField name="market_id" type="string">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="payout" type="int">
+  Expected payout amount (6 decimals)
+</ResponseField>
+
+<ResponseField name="winning_outcome" type="int">
+  Winning outcome (0=YES, 1=NO)
+</ResponseField>
+
+<ResponseField name="submitted_at" type="int">
+  Unix timestamp when claim was submitted
+</ResponseField>
+
+### Methods
+
+<ResponseField name="from_dict(data)" type="classmethod">
+  Creates a `PendingClaim` instance from an API response dictionary.
+</ResponseField>
+
+### Example
+
+```python
+# Get pending claims
+pending = client.get_pending_claims()
+for claim in pending:
+    print(f"Pending claim: {claim.tx_hash}")
+    print(f"  Market: {claim.market_id}")
+    print(f"  Payout: ${claim.payout / 1e6:.2f}")
 ```
