@@ -1,0 +1,452 @@
+---
+title: 'Market Data'
+description: 'Access markets, orderbooks, trades, statistics, and more via the Turbine API'
+icon: 'chart-line'
+---
+
+This guide covers how to retrieve market data from Turbine, including market listings, orderbooks, trade history, and statistics.
+
+## Overview
+
+All market data endpoints are **public** - no authentication required. You can query markets, orderbooks, and trades without API credentials.
+
+```python
+from turbine_client import TurbineClient
+
+# Public client (no auth needed)
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,  # Polygon mainnet
+)
+```
+
+## Markets
+
+### Get All Markets
+
+Retrieve a list of all markets across all chains:
+
+```python
+markets = client.get_markets()
+
+for market in markets:
+    print(f"Question: {market.question}")
+    print(f"  ID: {market.id}")
+    print(f"  Chain: {market.chain_id}")
+    print(f"  Category: {market.category}")
+    print(f"  Resolved: {market.resolved}")
+    print(f"  Volume: ${market.volume / 1e6:,.2f}")
+    print()
+```
+
+### Filter by Chain
+
+```python
+# Get markets on Polygon only
+polygon_markets = client.get_markets(chain_id=137)
+
+# Get markets on Avalanche
+avalanche_markets = client.get_markets(chain_id=43114)
+```
+
+### Get Quick Markets (BTC/ETH/SOL)
+
+Quick markets are 15-minute prediction markets for crypto assets:
+
+```python
+# Get the current active BTC quick market
+btc_market = client.get_quick_market("BTC")
+
+print(f"Question: {btc_market.question}")
+print(f"Strike Price: ${btc_market.start_price / 1e6:,.2f}")
+print(f"Market ID: {btc_market.market_id}")
+print(f"Expires: {btc_market.end_time}")
+print(f"Resolved: {btc_market.resolved}")
+
+# Also available for ETH and SOL
+eth_market = client.get_quick_market("ETH")
+sol_market = client.get_quick_market("SOL")
+```
+
+### Get Quick Market History
+
+Retrieve past quick markets for an asset:
+
+```python
+# Get historical BTC quick markets
+history = client.get_quick_market_history("BTC", limit=10)
+
+for market in history:
+    print(f"Strike: ${market.start_price / 1e6:,.2f}")
+    print(f"  Resolved: {market.resolved}")
+    if market.resolved:
+        outcome = "YES" if market.winning_outcome == 0 else "NO"
+        print(f"  Winner: {outcome}")
+    print()
+```
+
+### Get Single Market Details
+
+Fetch detailed information about a specific market:
+
+```python
+market = client.get_market(market_id="0x1234...")
+
+print(f"Question: {market.question}")
+print(f"Description: {market.description}")
+print(f"Category: {market.category}")
+print(f"Contract: {market.contract_address}")
+print(f"Settlement: {market.settlement_address}")
+print(f"Maker: {market.maker}")
+print(f"Expiration: {market.expiration}")
+print(f"Created: {market.created_at}")
+```
+
+## Orderbooks
+
+### Get Full Orderbook
+
+Retrieve the current orderbook snapshot for a market:
+
+```python
+orderbook = client.get_orderbook(market_id="0x1234...")
+
+print(f"Last updated: {orderbook.last_update}")
+print(f"Bids: {len(orderbook.bids)}")
+print(f"Asks: {len(orderbook.asks)}")
+
+# Display top 5 bids
+print("\nTop Bids (buyers):")
+for bid in orderbook.bids[:5]:
+    price_pct = bid.price / 10000  # Convert to percentage
+    shares = bid.size / 1_000_000
+    print(f"  {price_pct:.2f}% - {shares:.2f} shares")
+
+# Display top 5 asks
+print("\nTop Asks (sellers):")
+for ask in orderbook.asks[:5]:
+    price_pct = ask.price / 10000
+    shares = ask.size / 1_000_000
+    print(f"  {price_pct:.2f}% - {shares:.2f} shares")
+```
+
+### Filter by Outcome
+
+Get orderbook for a specific outcome (YES or NO):
+
+```python
+from turbine_client import Outcome
+
+# Get YES orderbook only
+yes_book = client.get_orderbook(market_id="0x1234...", outcome=Outcome.YES)
+
+# Get NO orderbook only
+no_book = client.get_orderbook(market_id="0x1234...", outcome=Outcome.NO)
+```
+
+### Calculate Spread
+
+```python
+orderbook = client.get_orderbook(market_id)
+
+if orderbook.bids and orderbook.asks:
+    best_bid = orderbook.bids[0].price / 10000
+    best_ask = orderbook.asks[0].price / 10000
+    spread = best_ask - best_bid
+    spread_bps = spread * 100  # Basis points
+    
+    print(f"Best Bid: {best_bid:.2f}%")
+    print(f"Best Ask: {best_ask:.2f}%")
+    print(f"Spread: {spread:.2f}% ({spread_bps:.0f} bps)")
+    print(f"Mid Price: {(best_bid + best_ask) / 2:.2f}%")
+```
+
+### Calculate Orderbook Depth
+
+```python
+def calculate_depth(levels: list, up_to_price: int) -> float:
+    """Calculate total size up to a given price level."""
+    total_size = 0
+    for level in levels:
+        if level.price <= up_to_price:
+            total_size += level.size
+        else:
+            break
+    return total_size / 1_000_000  # Convert to shares
+
+orderbook = client.get_orderbook(market_id)
+
+# Calculate bid depth up to 48%
+bid_depth = calculate_depth(orderbook.bids, 480000)
+print(f"Bid depth to 48%: {bid_depth:.2f} shares")
+
+# Calculate ask depth up to 52%
+ask_depth = calculate_depth(orderbook.asks, 520000)
+print(f"Ask depth to 52%: {ask_depth:.2f} shares")
+```
+
+## Trades
+
+### Get Recent Trades
+
+Retrieve trade history for a market:
+
+```python
+# Get last 100 trades (default)
+trades = client.get_trades(market_id="0x1234...")
+
+for trade in trades[:10]:  # Show first 10
+    price_pct = trade.price / 10000
+    shares = trade.size / 1_000_000
+    outcome = "YES" if trade.outcome == 0 else "NO"
+    timestamp = time.strftime('%H:%M:%S', time.localtime(trade.timestamp))
+    
+    print(f"{timestamp} - {shares:.2f} {outcome} @ {price_pct:.2f}%")
+    print(f"  Buyer: {trade.buyer[:10]}...")
+    print(f"  Seller: {trade.seller[:10]}...")
+    print(f"  Tx: {trade.tx_hash[:10]}...")
+```
+
+### Get Trades with Limit
+
+```python
+# Get last 50 trades
+recent_trades = client.get_trades(market_id="0x1234...", limit=50)
+
+# Get last 200 trades
+all_trades = client.get_trades(market_id="0x1234...", limit=200)
+```
+
+### Calculate Volume
+
+```python
+import time
+
+def calculate_volume_24h(trades: list) -> float:
+    """Calculate 24-hour trading volume in USDC."""
+    cutoff = time.time() - 86400  # 24 hours ago
+    volume = 0
+    
+    for trade in trades:
+        if trade.timestamp >= cutoff:
+            # Volume = size × price / 1e12
+            volume += (trade.size * trade.price) / 1e12
+    
+    return volume
+
+trades = client.get_trades(market_id)
+volume_24h = calculate_volume_24h(trades)
+print(f"24h Volume: ${volume_24h:,.2f} USDC")
+```
+
+### Analyze Trade Direction
+
+```python
+def analyze_trade_pressure(trades: list, last_n: int = 20) -> dict:
+    """Analyze recent trade direction."""
+    recent = trades[:last_n]
+    
+    yes_volume = 0
+    no_volume = 0
+    
+    for trade in recent:
+        volume = (trade.size * trade.price) / 1e12
+        if trade.outcome == 0:  # YES
+            yes_volume += volume
+        else:  # NO
+            no_volume += volume
+    
+    total = yes_volume + no_volume
+    
+    return {
+        "yes_volume": yes_volume,
+        "no_volume": no_volume,
+        "yes_pct": (yes_volume / total * 100) if total > 0 else 0,
+        "no_pct": (no_volume / total * 100) if total > 0 else 0,
+    }
+
+trades = client.get_trades(market_id)
+pressure = analyze_trade_pressure(trades)
+
+print(f"Recent trade pressure (last 20 trades):")
+print(f"  YES: {pressure['yes_pct']:.1f}%")
+print(f"  NO: {pressure['no_pct']:.1f}%")
+```
+
+## Statistics
+
+### Get Market Statistics
+
+```python
+stats = client.get_stats(market_id="0x1234...")
+
+print(f"Market Statistics:")
+print(f"  Volume 24h: ${stats.volume_24h / 1e6:,.2f}")
+print(f"  Last Price: {stats.last_price / 10000:.2f}%")
+print(f"  Price Change 24h: {stats.price_change_24h:.2f}%")
+print(f"  High 24h: {stats.high_24h / 10000:.2f}%")
+print(f"  Low 24h: {stats.low_24h / 10000:.2f}%")
+print(f"  Num Trades: {stats.num_trades}")
+```
+
+### Get Platform Statistics
+
+```python
+platform_stats = client.get_platform_stats()
+
+print(f"Platform Statistics:")
+print(f"  Total Markets: {platform_stats.market_count}")
+print(f"  Total Volume: ${platform_stats.total_volume / 1e6:,.2f}")
+print(f"  Active Traders: {platform_stats.active_traders}")
+print(f"  Markets Resolved: {platform_stats.resolved_count}")
+```
+
+## Asset Prices (Quick Markets)
+
+### Get Current Price
+
+Fetch the real-time price for BTC, ETH, or SOL:
+
+```python
+# Get current BTC price
+btc_price = client.get_quick_market_price("BTC")
+print(f"BTC: ${btc_price.price:,.2f}")
+print(f"Last updated: {btc_price.timestamp}")
+
+# Get current ETH price
+eth_price = client.get_quick_market_price("ETH")
+print(f"ETH: ${eth_price.price:,.2f}")
+```
+
+### Get Price History
+
+Retrieve historical price data:
+
+```python
+# Get BTC price history
+price_history = client.get_quick_market_price_history("BTC", limit=100)
+
+for price_point in price_history[:10]:
+    timestamp = time.strftime('%H:%M:%S', time.localtime(price_point.timestamp))
+    print(f"{timestamp}: ${price_point.price:,.2f}")
+```
+
+## Resolution Status
+
+### Check if Market is Resolved
+
+```python
+resolution = client.get_resolution(market_id="0x1234...")
+
+if resolution.resolved:
+    outcome = "YES" if resolution.outcome == 0 else "NO"
+    print(f"Market resolved: {outcome} won")
+    print(f"Assertion ID: {resolution.assertion_id}")
+    print(f"Timestamp: {resolution.timestamp}")
+else:
+    print("Market not yet resolved")
+```
+
+## Position & Holder Data
+
+### Get Top Holders
+
+See who holds the most shares in a market:
+
+```python
+holders = client.get_holders(market_id="0x1234...")
+
+print("Top Holders:")
+for holder in holders[:10]:
+    print(f"  {holder.address[:10]}...")
+    print(f"    YES shares: {holder.yes_shares / 1e6:.2f}")
+    print(f"    NO shares: {holder.no_shares / 1e6:.2f}")
+```
+
+## Complete Example: Market Monitor
+
+Here's a complete script that monitors a market:
+
+```python market_monitor.py
+import time
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+)
+
+def monitor_market(market_id: str):
+    """Monitor a market and display key metrics."""
+    while True:
+        try:
+            # Get market details
+            market = client.get_market(market_id)
+            
+            # Get orderbook
+            orderbook = client.get_orderbook(market_id)
+            
+            # Get recent trades
+            trades = client.get_trades(market_id, limit=10)
+            
+            # Get stats
+            stats = client.get_stats(market_id)
+            
+            # Clear screen and display
+            print("\033[2J\033[H")  # Clear terminal
+            print(f"Market: {market.question}")
+            print(f"Time: {time.strftime('%H:%M:%S')}\n")
+            
+            # Orderbook
+            if orderbook.bids and orderbook.asks:
+                best_bid = orderbook.bids[0].price / 10000
+                best_ask = orderbook.asks[0].price / 10000
+                spread = best_ask - best_bid
+                
+                print(f"Orderbook:")
+                print(f"  Bid: {best_bid:.2f}%")
+                print(f"  Ask: {best_ask:.2f}%")
+                print(f"  Spread: {spread:.2f}%\n")
+            
+            # Stats
+            print(f"Statistics:")
+            print(f"  24h Volume: ${stats.volume_24h / 1e6:,.2f}")
+            print(f"  Last Price: {stats.last_price / 10000:.2f}%")
+            print(f"  Trades: {stats.num_trades}\n")
+            
+            # Recent trades
+            print(f"Recent Trades:")
+            for trade in trades[:5]:
+                price_pct = trade.price / 10000
+                shares = trade.size / 1_000_000
+                outcome = "YES" if trade.outcome == 0 else "NO"
+                timestamp = time.strftime('%H:%M:%S', time.localtime(trade.timestamp))
+                print(f"  {timestamp}: {shares:.2f} {outcome} @ {price_pct:.2f}%")
+            
+        except Exception as e:
+            print(f"Error: {e}")
+        
+        time.sleep(5)
+
+if __name__ == "__main__":
+    # Monitor the current BTC quick market
+    market = client.get_quick_market("BTC")
+    monitor_market(market.market_id)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="WebSocket Streams" icon="bolt" href="/guides/websocket-streams">
+    Get real-time market updates
+  </Card>
+  <Card title="Build a Trading Bot" icon="robot" href="/guides/building-bots">
+    Automate trading with a bot
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/client">
+    Complete API documentation
+  </Card>
+  <Card title="First Trade" icon="play" href="/guides/first-trade">
+    Learn the basics of trading
+  </Card>
+</CardGroup>

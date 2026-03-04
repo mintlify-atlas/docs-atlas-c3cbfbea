@@ -1,0 +1,128 @@
+---
+title: Introduction
+description: Python client for trading on Turbine CLOB prediction markets
+---
+
+The Turbine Python Client SDK provides a clean, typed interface for building automated trading strategies on Turbine's prediction markets platform.
+
+## What is Turbine?
+
+Turbine is a trustless prediction markets platform where you can trade on whether BTC, ETH, or SOL will go up or down in the next 15 minutes. Every 15 minutes, new markets open with binary questions like "Will BTC be above $97,250 at 3:15 PM?"
+
+- **YES shares** pay $1.00 if the asset finishes above the strike price
+- **NO shares** pay $1.00 if the asset finishes below
+- Shares are priced between $0.01 and $0.99 based on market confidence
+
+Turbine runs an off-chain orderbook (CLOB) with on-chain settlement, using the UMA Optimistic Oracle for trustless market resolution.
+
+## Key features
+
+The SDK is designed to make prediction market trading as simple as possible:
+
+<CardGroup cols={2}>
+  <Card title="Fully gasless" icon="gas-pump">
+    No RPC, no web3 dependency, no native gas tokens required. Everything routes through the Turbine API.
+  </Card>
+  <Card title="EIP-712 order signing" icon="signature">
+    Orders are signed off-chain with your private key and matched by the Turbine API.
+  </Card>
+  <Card title="Real-time WebSocket" icon="bolt">
+    Subscribe to orderbook updates, trades, and market transitions via WebSocket.
+  </Card>
+  <Card title="Type-safe" icon="shield-check">
+    Fully typed dataclasses and enums for all API operations.
+  </Card>
+</CardGroup>
+
+## Architecture
+
+The SDK follows a clean, modular design:
+
+```
+turbine_client/
+├── client.py          # TurbineClient — all API methods
+├── types.py           # Dataclasses: Market, Trade, Position, Side, Outcome
+├── signer.py          # EIP-712 order signing
+├── auth.py            # Ed25519 bearer token authentication
+├── config.py          # Chain configurations
+├── order_builder/     # Order creation helpers
+├── http/client.py     # HTTP client with auth
+└── ws/client.py       # WebSocket streaming client
+```
+
+**Three access levels:**
+
+1. **Public** — Read-only market data (no authentication)
+2. **Signing** — Create and sign orders (requires wallet private key)
+3. **Full** — Submit orders and manage positions (requires API credentials)
+
+## Who is this for?
+
+The SDK is built for:
+
+- **Algorithmic traders** building automated strategies
+- **Market makers** providing liquidity
+- **Researchers** exploring prediction market dynamics
+- **Developers** integrating Turbine into applications
+
+## Supported chains
+
+| Chain | Chain ID | Status |
+|-------|----------|--------|
+| Polygon | 137 | ✅ Active (recommended) |
+| Avalanche | 43114 | ✅ Active |
+| Base Sepolia | 84532 | ⚠️ Testnet (not operational) |
+
+<Note>
+  Polygon mainnet is the primary trading environment. You'll need real USDC on Polygon to trade.
+</Note>
+
+## What you'll need
+
+1. **Python 3.9+** — The SDK requires Python 3.9 or higher
+2. **Ethereum wallet** — A private key for signing orders (MetaMask export works)
+3. **USDC** — Minimum ~$10 on Polygon mainnet for trading
+4. **API credentials** — Auto-generated on first run (no manual setup)
+
+<Warning>
+  No native gas tokens (MATIC, AVAX) are required. Turbine is fully gasless — you only need USDC.
+</Warning>
+
+## Example use case
+
+Here's what a typical trading bot does:
+
+<Steps>
+  <Step title="Connect to Turbine API">
+    Initialize the client with your credentials
+  </Step>
+  <Step title="Fetch current market">
+    Get the active 15-minute BTC/ETH/SOL market
+  </Step>
+  <Step title="Approve USDC">
+    One-time gasless approval via API (automatic)
+  </Step>
+  <Step title="Generate trading signal">
+    Calculate whether to buy YES, NO, or hold based on your strategy
+  </Step>
+  <Step title="Submit orders">
+    Sign and submit limit orders to the orderbook
+  </Step>
+  <Step title="Monitor positions">
+    Track fills, manage risk, and adjust orders
+  </Step>
+  <Step title="Claim winnings">
+    Automatically claim payouts when markets resolve
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get your first trade running in 5 minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed setup instructions
+  </Card>
+</CardGroup>

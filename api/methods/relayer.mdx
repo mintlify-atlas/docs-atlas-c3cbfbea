@@ -1,0 +1,347 @@
+---
+title: "Relayer Methods"
+description: "Gasless USDC approvals and winnings claims via the Turbine relayer"
+---
+
+Relayer methods enable gasless on-chain operations. Users sign EIP-712 permits off-chain, and the Turbine relayer submits transactions on-chain, paying the gas. No native tokens (MATIC, ETH, AVAX) are required.
+
+## approve_usdc_for_settlement
+
+Approve USDC spending for a settlement contract using a gasless permit (EIP-2612).
+
+This is a one-time operation per settlement contract. Once approved, all future orders on that chain reuse the allowance. The permit uses max values (max uint256 for both amount and deadline) to avoid repeated approvals.
+
+<ParamField path="settlement_address" type="str | None">
+  The settlement contract address. If not provided, uses the default for the chain.
+</ParamField>
+
+**Returns:** `dict[str, Any]` - Relayer response containing:
+- `tx_hash`: The transaction hash (when successful)
+- `status`: Status message
+
+**Requires:** Private key + API credentials
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+# One-time approval (only needed once per chain)
+response = client.approve_usdc_for_settlement()
+print(f"USDC approval submitted: {response['tx_hash']}")
+print(f"Status: {response.get('status', 'pending')}")
+
+# After this succeeds, you can trade without further approvals
+```
+
+**Important notes:**
+
+- **Check allowance first:** Before calling this, check if you already have an allowance:
+  ```python
+  allowance = client.get_usdc_allowance()
+  if allowance > 0:
+      print(f"Already approved: {allowance / 1_000_000:.2f} USDC")
+  else:
+      client.approve_usdc_for_settlement()
+  ```
+
+- **Gasless:** No native gas tokens required. The relayer pays the gas and submits the transaction.
+
+- **Max approval:** This approves the maximum possible amount (2^256 - 1) to avoid repeated approvals.
+
+---
+
+## claim_winnings
+
+Claim winnings from a resolved market using a gasless permit.
+
+When a market resolves, winning tokens (YES if YES won, NO if NO won) can be redeemed for USDC. This method signs an EIP-712 permit for gasless redemption and submits it to the relayer.
+
+<ParamField path="market_contract_address" type="str" required>
+  The market's contract address (ERC1155 token contract).
+</ParamField>
+
+**Returns:** `dict[str, Any]` - Relayer response containing:
+- `tx_hash`: The transaction hash
+- `status`: Status message
+
+**Requires:** Private key + API credentials
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+# Get resolved markets with claimable winnings
+claimable = client.get_claimable_positions(verify=True)
+
+if claimable['count'] > 0:
+    print(f"Found {claimable['count']} claimable markets")
+    print(f"Total payout: ${claimable['totalPayout']}")
+    
+    # Claim from the first market
+    first_market = claimable['claimable'][0]
+    contract_address = first_market.contract_address
+    
+    print(f"Claiming from {contract_address}...")
+    response = client.claim_winnings(contract_address)
+    
+    print(f"Claim submitted: {response['tx_hash']}")
+    print(f"Status: {response.get('status', 'pending')}")
+else:
+    print("No claimable winnings found")
+```
+
+**Throws:**
+- `ValueError`: If the market is not resolved or you have no winning tokens
+- `AuthenticationError`: If no signer or API credentials configured
+
+---
+
+## batch_claim_winnings
+
+Claim winnings from multiple resolved markets in a single gasless transaction.
+
+This is more efficient than calling `claim_winnings()` multiple times, as it batches all redemptions into one on-chain transaction.
+
+<ParamField path="market_contract_addresses" type="list[str]" required>
+  List of market contract addresses to claim from.
+</ParamField>
+
+**Returns:** `dict[str, Any]` - Relayer response containing:
+- `txHash`: The batch transaction hash
+- `status`: Status message
+
+**Requires:** Private key + API credentials
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+# Get all claimable positions
+claimable = client.get_claimable_positions(verify=True)
+
+if claimable['count'] > 0:
+    # Extract contract addresses
+    addresses = [
+        pos.contract_address
+        for pos in claimable['claimable']
+    ]
+    
+    print(f"Claiming from {len(addresses)} markets...")
+    print(f"Total payout: ${claimable['totalPayout']}")
+    
+    # Batch claim all at once
+    response = client.batch_claim_winnings(addresses)
+    
+    print(f"Batch claim submitted: {response['txHash']}")
+    print(f"Status: {response.get('status', 'pending')}")
+else:
+    print("No claimable winnings found")
+```
+
+**Automatic filtering:** The method automatically skips markets that are not resolved or have no winning tokens.
+
+**Throws:**
+- `ValueError`: If none of the markets have winning tokens to redeem
+- `AuthenticationError`: If no signer or API credentials configured
+
+---
+
+## claim_all_winnings
+
+Discover and claim all winnings in a single operation.
+
+This is a convenience method that:
+1. Scans all Quick Markets and static markets using the Turbine API
+2. Identifies claimable positions (resolved markets with winning tokens)
+3. Batch claims all winnings via the gasless relayer
+
+**Returns:** `dict[str, Any]` - Relayer response with transaction hash
+
+**Requires:** Private key + API credentials
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+# Discover and claim everything in one call
+try:
+    response = client.claim_all_winnings()
+    print(f"All winnings claimed: {response['txHash']}")
+except ValueError as e:
+    print(f"No winnings to claim: {e}")
+```
+
+**Output:**
+```
+Found 3 claimable market(s) — total payout: $12.45
+  0xabc... [quick]: YES won, $5.20
+  0xdef... [quick]: NO won, $4.15
+  0x123... [static]: YES won, $3.10
+
+Submitting batch redemption for 3 markets...
+All winnings claimed: 0x789...
+```
+
+**Also reports mergeable positions:** If you have paired YES+NO tokens in unresolved markets (which can be merged back to USDC), this method will report them but not claim them.
+
+---
+
+## Helper Methods
+
+### get_usdc_allowance
+
+Check the current USDC allowance for the settlement contract.
+
+<ParamField path="owner" type="str | None">
+  The token owner. Defaults to signer address.
+</ParamField>
+
+<ParamField path="spender" type="str | None">
+  The spender address. Defaults to settlement contract.
+</ParamField>
+
+**Returns:** `int` - Current allowance with 6 decimals
+
+**Example:**
+
+```python
+allowance = client.get_usdc_allowance()
+if allowance > 0:
+    print(f"Current allowance: ${allowance / 1_000_000:.2f}")
+else:
+    print("No USDC approval yet")
+    client.approve_usdc_for_settlement()
+```
+
+### get_usdc_balance
+
+Check the USDC balance for an address.
+
+<ParamField path="owner" type="str | None">
+  The address to check. Defaults to signer address.
+</ParamField>
+
+**Returns:** `int` - USDC balance with 6 decimals
+
+**Example:**
+
+```python
+balance = client.get_usdc_balance()
+print(f"USDC balance: ${balance / 1_000_000:.2f}")
+
+if balance < 10_000_000:  # Less than $10
+    print("Warning: Low USDC balance")
+```
+
+### get_claimable_positions
+
+Get resolved markets where you have winning tokens to claim.
+
+<ParamField path="address" type="str | None">
+  User address. Defaults to signer address.
+</ParamField>
+
+<ParamField path="verify" type="bool">
+  If True, verify each position on-chain and backfill already-claimed positions. Slower but handles pre-fix data. Default: True.
+</ParamField>
+
+**Returns:** `dict` with:
+- `claimable`: List of `ClaimablePosition` objects
+- `count`: Number of claimable markets
+- `totalPayout`: Total USDC payout as a string (e.g., "12.45")
+
+**Example:**
+
+```python
+claimable = client.get_claimable_positions(verify=True)
+
+print(f"Claimable markets: {claimable['count']}")
+print(f"Total payout: ${claimable['totalPayout']}")
+
+for position in claimable['claimable']:
+    print(f"  {position.contract_address}")
+    print(f"    Outcome: {position.outcome_label}")
+    print(f"    Payout: ${position.payout_usdc}")
+```
+
+---
+
+## Related Types
+
+### ClaimablePosition
+
+```python
+@dataclass
+class ClaimablePosition:
+    contract_address: str  # Market contract address
+    outcome: int  # 0 = YES, 1 = NO
+    outcome_label: str  # "YES" or "NO"
+    balance: int  # Winning token balance (6 decimals)
+    payout_usdc: float  # Payout in USDC
+    source: str  # "quick" or "static"
+```
+
+---
+
+## How Gasless Works
+
+1. **Sign off-chain:** Your private key signs an EIP-712 message (a "permit") that authorizes an on-chain action.
+2. **Submit to relayer:** The SDK sends the signed permit to the Turbine API's `/relayer/*` endpoints.
+3. **Relayer executes:** Turbine's relayer submits the permit as an on-chain transaction, paying the gas.
+4. **You receive confirmation:** The API returns a `tx_hash` that you can use to track the transaction.
+
+**Benefits:**
+- No native gas tokens required (no MATIC, ETH, or AVAX)
+- Users only need USDC
+- Lower barrier to entry for new users
+
+**Supported operations:**
+- USDC approvals (EIP-2612 permit)
+- CTF token approvals (EIP-712 SetApprovalForAll)
+- Winnings claims (EIP-712 RedeemPositions)
+
+---
+
+## Notes
+
+- **One-time approval:** USDC approval is needed once per chain. After that, all orders reuse the allowance.
+- **No gas needed:** You never need native tokens (MATIC, ETH, AVAX). Only USDC is required.
+- **Claiming frequency:** Enforce a 15-second delay between claim operations to respect API rate limits.
+- **Transaction tracking:** All relayer methods return a `tx_hash` or `txHash`. Use a block explorer (e.g., Polygonscan) to track the transaction status.
+- **Verification:** When claiming, use `verify=True` in `get_claimable_positions()` to ensure accurate on-chain balance checks.

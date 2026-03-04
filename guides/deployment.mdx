@@ -1,0 +1,555 @@
+---
+title: 'Deploying to Production'
+description: 'Deploy your trading bot to run 24/7 on Railway'
+icon: 'rocket'
+---
+
+This guide covers how to deploy your trading bot to Railway for continuous 24/7 operation.
+
+## Why Deploy?
+
+Running a bot on your local machine requires:
+- Keeping your computer on 24/7
+- Maintaining a stable internet connection
+- Manual restarts after crashes or updates
+
+Deploying to a cloud platform like Railway eliminates these issues:
+- **24/7 uptime** - Bot runs continuously in the cloud
+- **Auto-restart** - Automatically restarts if it crashes
+- **Free tier** - Railway offers $5 free credit for 30 days
+- **Simple deployment** - One command to deploy
+
+## Railway Deployment
+
+Railway is the recommended platform for running Turbine bots. It's simple, affordable, and designed for Python applications.
+
+### Prerequisites
+
+- A working trading bot (see [Building Bots](/guides/building-bots))
+- A Railway account ([railway.app](https://railway.app))
+- Your bot's private key and API credentials
+
+### Quick Deploy
+
+The fastest way to deploy is using the Railway deployment script:
+
+```bash
+# From the turbine-py-client directory
+bash scripts/deploy-railway.sh
+```
+
+This script will:
+1. Check if Railway CLI is installed (installs it if needed)
+2. Create a new Railway project
+3. Set up environment variables
+4. Deploy your bot
+5. Provide you with the deployment URL
+
+<Info>
+Railway offers **$5 free credit** for 30 days. After that, basic bot hosting typically costs $5-10/month depending on usage.
+</Info>
+
+### Manual Railway Setup
+
+If you prefer to deploy manually:
+
+<Steps>
+
+### Step 1: Install Railway CLI
+
+```bash
+# macOS/Linux
+curl -fsSL https://railway.app/install.sh | sh
+
+# Or via npm
+npm install -g @railway/cli
+```
+
+### Step 2: Login to Railway
+
+```bash
+railway login
+```
+
+This opens a browser window to authenticate.
+
+### Step 3: Initialize Project
+
+In your bot's directory:
+
+```bash
+railway init
+```
+
+Select "Create new project" and give it a name like `turbine-trading-bot`.
+
+### Step 4: Set Environment Variables
+
+Add your credentials to Railway:
+
+```bash
+railway variables set TURBINE_PRIVATE_KEY="0xyour_private_key_here"
+railway variables set TURBINE_API_KEY_ID="your_api_key_id"
+railway variables set TURBINE_API_PRIVATE_KEY="your_api_private_key"
+railway variables set CHAIN_ID="137"
+railway variables set TURBINE_HOST="https://api.turbinefi.com"
+```
+
+<Warning>
+**Security:** Never commit your `.env` file or private keys to git. Railway stores environment variables securely.
+</Warning>
+
+### Step 5: Create Railway Configuration
+
+Create a `railway.json` file in your project root:
+
+```json railway.json
+{
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "python my_bot.py",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+```
+
+Replace `my_bot.py` with your bot's filename.
+
+### Step 6: Create Procfile (Optional)
+
+Alternatively, create a `Procfile`:
+
+```text Procfile
+worker: python my_bot.py
+```
+
+### Step 7: Deploy
+
+Deploy your bot:
+
+```bash
+railway up
+```
+
+Railway will:
+1. Build your Python environment
+2. Install dependencies from `requirements.txt`
+3. Start your bot
+4. Provide a deployment URL
+
+### Step 8: Monitor Logs
+
+Watch your bot's output in real-time:
+
+```bash
+railway logs
+```
+
+</Steps>
+
+## Project Structure for Deployment
+
+Your deployed bot should have this structure:
+
+```
+my-trading-bot/
+├── bot.py                 # Your bot code
+├── requirements.txt       # Python dependencies
+├── railway.json          # Railway config (optional)
+├── Procfile              # Process definition (optional)
+├── .gitignore            # Exclude .env, __pycache__, etc.
+└── README.md             # Documentation
+```
+
+### requirements.txt
+
+Create a `requirements.txt` file with your dependencies:
+
+```text requirements.txt
+turbine-py-client>=1.0.0
+python-dotenv>=1.0.0
+httpx>=0.24.0
+```
+
+Generate it automatically:
+
+```bash
+pip freeze > requirements.txt
+```
+
+### .gitignore
+
+Don't commit sensitive files:
+
+```text .gitignore
+.env
+*.pyc
+__pycache__/
+.venv/
+venv/
+*.log
+.DS_Store
+```
+
+## Environment Variables on Railway
+
+Railway manages environment variables through its dashboard or CLI.
+
+### Required Variables
+
+```bash
+TURBINE_PRIVATE_KEY=0x...
+TURBINE_API_KEY_ID=...
+TURBINE_API_PRIVATE_KEY=...
+CHAIN_ID=137
+TURBINE_HOST=https://api.turbinefi.com
+```
+
+### Optional Variables
+
+```bash
+# Trading parameters
+ORDER_SIZE_USDC=1.0
+MAX_POSITION_USDC=10.0
+
+# Bot behavior
+CLAIM_ONLY_MODE=false
+PRICE_POLL_SECONDS=10
+
+# Logging
+LOG_LEVEL=INFO
+```
+
+### Set via CLI
+
+```bash
+railway variables set ORDER_SIZE_USDC="5.0"
+railway variables set MAX_POSITION_USDC="50.0"
+```
+
+### Set via Dashboard
+
+1. Go to [railway.app](https://railway.app)
+2. Select your project
+3. Click "Variables" tab
+4. Add variables using the UI
+
+## Monitoring Your Bot
+
+### View Logs
+
+```bash
+# Real-time logs
+railway logs
+
+# Follow logs (like tail -f)
+railway logs --follow
+```
+
+### Check Status
+
+```bash
+railway status
+```
+
+### Restart Bot
+
+```bash
+railway restart
+```
+
+### Access Railway Dashboard
+
+```bash
+railway open
+```
+
+This opens your project in the Railway web dashboard where you can:
+- View real-time logs
+- Monitor resource usage (CPU, memory)
+- Manage environment variables
+- Configure auto-scaling
+- Set up custom domains
+
+## Advanced Configuration
+
+### Auto-Restart on Failure
+
+Configure automatic restarts in `railway.json`:
+
+```json
+{
+  "deploy": {
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+```
+
+This restarts your bot up to 10 times if it crashes.
+
+### Health Checks
+
+Add a simple HTTP health check endpoint to your bot:
+
+```python
+import asyncio
+from aiohttp import web
+
+class DeployedBot:
+    def __init__(self):
+        self.healthy = True
+        self.last_trade_time = 0
+    
+    async def health_check(self, request):
+        """Health check endpoint for Railway."""
+        if not self.healthy:
+            return web.Response(status=503, text="Unhealthy")
+        return web.Response(text="OK")
+    
+    async def start_web_server(self):
+        """Start health check server."""
+        app = web.Application()
+        app.router.add_get('/health', self.health_check)
+        
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', 8080)
+        await site.start()
+        print("Health check server running on :8080")
+    
+    async def run(self):
+        # Start health check server
+        asyncio.create_task(self.start_web_server())
+        
+        # Run bot
+        while True:
+            try:
+                # Your trading logic
+                self.healthy = True
+            except Exception as e:
+                print(f"Error: {e}")
+                self.healthy = False
+            
+            await asyncio.sleep(10)
+```
+
+Update `railway.json`:
+
+```json
+{
+  "deploy": {
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 100
+  }
+}
+```
+
+### Logging Configuration
+
+Structured logging for production:
+
+```python
+import logging
+import sys
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)  # Railway captures stdout
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# In your bot
+logger.info("Bot started")
+logger.warning("Low USDC balance")
+logger.error("Failed to place order", exc_info=True)
+```
+
+## Cost Optimization
+
+### Railway Pricing
+
+Railway charges based on:
+- **Execution time** - How long your bot runs
+- **Memory usage** - RAM consumed
+- **Network egress** - Outbound data transfer
+
+Typical trading bot costs: **$5-10/month**
+
+### Reduce Costs
+
+1. **Optimize polling intervals** - Don't poll faster than necessary
+2. **Batch API calls** - Reduce network requests
+3. **Efficient logging** - Don't log every trivial event
+4. **Clean up old data** - Don't accumulate logs in memory
+
+```python
+# Good: Efficient polling
+await asyncio.sleep(10)  # Check every 10 seconds
+
+# Bad: Excessive polling
+await asyncio.sleep(0.1)  # Wastes CPU and API quota
+```
+
+## Scaling
+
+### Horizontal Scaling
+
+Run multiple bot instances:
+
+```bash
+# Deploy bot #1 (BTC only)
+railway variables set ASSETS="BTC"
+railway up
+
+# Deploy bot #2 (ETH only)
+railway variables set ASSETS="ETH"
+railway up
+
+# Deploy bot #3 (SOL only)
+railway variables set ASSETS="SOL"
+railway up
+```
+
+### Resource Limits
+
+Set memory limits in `railway.json`:
+
+```json
+{
+  "deploy": {
+    "resources": {
+      "memory": 512
+    }
+  }
+}
+```
+
+## Troubleshooting
+
+### Bot Keeps Crashing
+
+Check logs for errors:
+
+```bash
+railway logs --lines 100
+```
+
+Common issues:
+- Missing environment variables
+- Invalid API credentials
+- Insufficient USDC balance
+- Network timeouts
+
+### "Build Failed" Error
+
+Ensure `requirements.txt` is complete:
+
+```bash
+pip freeze > requirements.txt
+git add requirements.txt
+git commit -m "Update dependencies"
+railway up
+```
+
+### Environment Variables Not Loading
+
+Verify variables are set:
+
+```bash
+railway variables
+```
+
+Make sure your bot reads from `os.getenv()`, not just `.env` file.
+
+### High Memory Usage
+
+Optimize your bot:
+- Limit orderbook depth in memory
+- Clear old trade data periodically
+- Use generators instead of lists for large datasets
+
+```python
+# Bad: Loads all trades into memory
+trades = client.get_trades(market_id, limit=10000)
+
+# Good: Process in batches
+for i in range(0, 10000, 100):
+    batch = client.get_trades(market_id, limit=100, offset=i)
+    process_batch(batch)
+```
+
+## Alternative Platforms
+
+While Railway is recommended, you can also deploy to:
+
+### Render
+
+```bash
+# Create render.yaml
+services:
+  - type: worker
+    name: turbine-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+```
+
+Deploy via [render.com](https://render.com)
+
+### Heroku
+
+```bash
+# Create Procfile
+worker: python bot.py
+
+# Deploy
+heroku create my-turbine-bot
+git push heroku main
+heroku ps:scale worker=1
+```
+
+### DigitalOcean App Platform
+
+```bash
+# Create .do/app.yaml
+name: turbine-bot
+services:
+  - name: bot
+    run_command: python bot.py
+    environment_slug: python
+```
+
+### AWS / GCP / Azure
+
+For advanced users, deploy to:
+- **AWS Lambda** (serverless)
+- **Google Cloud Run** (containerized)
+- **Azure Container Instances**
+
+These require Docker and more complex configuration.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build a Trading Bot" icon="robot" href="/guides/building-bots">
+    Create a bot to deploy
+  </Card>
+  <Card title="Monitor Performance" icon="chart-line" href="/guides/market-data">
+    Track your bot's performance
+  </Card>
+  <Card title="WebSocket Streams" icon="bolt" href="/guides/websocket-streams">
+    Optimize with real-time data
+  </Card>
+  <Card title="Example Bots" icon="code" href="https://github.com/ojo-network/turbine-py-client/tree/main/examples">
+    Browse production-ready bots
+  </Card>
+</CardGroup>

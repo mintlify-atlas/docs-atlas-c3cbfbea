@@ -1,0 +1,445 @@
+---
+title: 'Claiming Winnings'
+description: 'How to claim USDC from resolved markets using gasless transactions'
+icon: 'trophy'
+---
+
+This guide covers how to claim your winnings from resolved prediction markets on Turbine.
+
+## Overview
+
+When a market resolves, your winning shares (YES or NO) can be redeemed for USDC. Turbine uses a **gasless claiming process** - no RPC access or native gas tokens (MATIC, AVAX) required.
+
+The claiming process:
+1. Market expires (15 minutes for quick markets)
+2. UMA Oracle resolves the market (declares YES or NO as winner)
+3. You claim your winning shares via the API's relayer
+4. USDC is deposited to your wallet
+
+<Info>
+Claiming is **completely gasless** - the Turbine relayer pays all gas fees. You only need your wallet's private key to sign the claim message.
+</Info>
+
+## Prerequisites
+
+- Private key for your wallet
+- API credentials (automatically generated on first use)
+- Winning position in a resolved market
+
+## Check Resolution Status
+
+Before claiming, verify that a market has resolved:
+
+```python
+from turbine_client import TurbineClient
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,  # Polygon mainnet
+    private_key=os.getenv("TURBINE_PRIVATE_KEY"),
+)
+
+# Check if market is resolved
+resolution = client.get_resolution(market_id="0x1234...")
+
+if resolution.resolved:
+    outcome = "YES" if resolution.outcome == 0 else "NO"
+    print(f"Market resolved: {outcome} won")
+    print(f"Assertion ID: {resolution.assertion_id}")
+    print(f"Timestamp: {resolution.timestamp}")
+else:
+    print("Market not yet resolved")
+```
+
+## Claim from a Single Market
+
+To claim winnings from one resolved market:
+
+```python
+from turbine_client import TurbineClient
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key=os.getenv("TURBINE_PRIVATE_KEY"),
+)
+
+# Claim from a resolved market
+market_contract_address = "0xB8c45e915F8a78ff8FD691bBDED2125bc9Fa4d96"
+
+try:
+    result = client.claim_winnings(market_contract_address)
+    print(f"Claim successful!")
+    print(f"Transaction hash: {result.get('tx_hash')}")
+except ValueError as e:
+    print(f"Claim failed: {e}")
+```
+
+<Warning>
+**Important:** You must provide the **contract address** (the ERC1155 market contract), not the market ID. These are different values.
+
+- **Market ID** - hex string identifier used in API calls
+- **Contract Address** - on-chain contract address for the market
+
+Get the contract address from the market details:
+```python
+market = client.get_market(market_id="0x1234...")
+contract_address = market.contract_address
+```
+</Warning>
+
+## Batch Claiming (Multiple Markets)
+
+If you have winning positions in multiple resolved markets, claim them all in a single transaction:
+
+```python
+# List of contract addresses (not market IDs!)
+market_contracts = [
+    "0xB8c45e915F8a78ff8FD691bBDED2125bc9Fa4d96",
+    "0x3A2F8C1D0B4E9A7C6F5D8E2A1B9C4D7E3F6A8B5C",
+    "0x7E1B9D4C5A8F3E2D6B9C1A4E7F3D8B5C2A6E9F1D",
+]
+
+try:
+    result = client.batch_claim_winnings(market_contracts)
+    print(f"Batch claim successful!")
+    print(f"Transaction hash: {result.get('txHash')}")
+except ValueError as e:
+    print(f"Batch claim failed: {e}")
+```
+
+<Info>
+Batch claiming is more gas-efficient when you have multiple markets to claim from, though gas is paid by the relayer either way.
+</Info>
+
+## Command Line Examples
+
+You can use the example scripts directly from the command line:
+
+### Single Market Claim
+
+```bash
+# Claim from one market
+python examples/claim_winnings.py 0xB8c45e915F8a78ff8FD691bBDED2125bc9Fa4d96
+
+# Specify chain ID (default is 137 - Polygon)
+python examples/claim_winnings.py 0xB8c45e915F8a78ff8FD691bBDED2125bc9Fa4d96 137
+
+# Claim on Avalanche
+python examples/claim_winnings.py 0x... 43114
+```
+
+### Batch Claim
+
+```bash
+# Claim from multiple markets
+python examples/batch_claim_winnings.py \
+  0xMarket1... \
+  0xMarket2... \
+  0xMarket3...
+
+# Specify chain
+python examples/batch_claim_winnings.py \
+  0xMarket1... \
+  0xMarket2... \
+  --chain 137
+```
+
+## Automated Claiming in Bots
+
+Trading bots should automatically claim winnings from resolved markets. Here's a background task pattern:
+
+```python
+import asyncio
+import time
+from turbine_client import TurbineClient
+
+class AutoClaimBot:
+    def __init__(self, client: TurbineClient):
+        self.client = client
+        self.traded_markets = {}  # market_id -> contract_address
+        self.running = True
+    
+    async def claim_task(self):
+        """Background task to claim from resolved markets."""
+        while self.running:
+            await self.check_and_claim()
+            await asyncio.sleep(300)  # Check every 5 minutes
+    
+    async def check_and_claim(self):
+        """Check all traded markets and claim if resolved."""
+        markets_to_remove = []
+        
+        for market_id, contract_addr in self.traded_markets.items():
+            try:
+                # Check if market is resolved
+                resolution = self.client.get_resolution(market_id)
+                
+                if resolution and resolution.resolved:
+                    print(f"Market {market_id[:10]}... resolved, claiming...")
+                    
+                    # Claim winnings
+                    result = self.client.claim_winnings(contract_addr)
+                    print(f"Claimed: {result.get('tx_hash')}")
+                    
+                    # Mark for removal
+                    markets_to_remove.append(market_id)
+                    
+                    # Rate limit to avoid API throttling
+                    await asyncio.sleep(15)
+            
+            except Exception as e:
+                print(f"Claim error for {market_id}: {e}")
+        
+        # Remove claimed markets from tracking
+        for market_id in markets_to_remove:
+            del self.traded_markets[market_id]
+    
+    def track_market(self, market_id: str, contract_address: str):
+        """Add a market to claim tracking."""
+        self.traded_markets[market_id] = contract_address
+```
+
+Integrate into your bot:
+
+```python
+class TradingBot:
+    def __init__(self, client):
+        self.client = client
+        self.auto_claim = AutoClaimBot(client)
+    
+    async def run(self):
+        # Start claim task in background
+        asyncio.create_task(self.auto_claim.claim_task())
+        
+        while True:
+            # Your trading logic
+            market = self.client.get_quick_market("BTC")
+            
+            # Track this market for claiming
+            self.auto_claim.track_market(
+                market.market_id,
+                market.contract_address
+            )
+            
+            # ... place orders, etc.
+            await asyncio.sleep(10)
+```
+
+See the complete implementation in [`examples/price_action_bot.py`](https://github.com/ojo-network/turbine-py-client/blob/main/examples/price_action_bot.py).
+
+<Warning>
+**Rate Limiting:** Enforce at least a 15-second delay between claim attempts to avoid API rate limits.
+</Warning>
+
+## Finding Markets to Claim
+
+### Get Your Positions
+
+Find all markets where you have a position:
+
+```python
+# Get all your positions
+positions = client.get_user_positions(
+    address=client.address,
+    chain_id=137
+)
+
+print(f"You have positions in {len(positions)} markets")
+
+for pos in positions:
+    market = client.get_market(pos.market_id)
+    
+    print(f"\nMarket: {market.question}")
+    print(f"  YES shares: {pos.yes_shares / 1e6:.2f}")
+    print(f"  NO shares: {pos.no_shares / 1e6:.2f}")
+    print(f"  Cost basis: ${pos.total_invested / 1e6:.2f}")
+    
+    # Check if resolved
+    resolution = client.get_resolution(pos.market_id)
+    if resolution and resolution.resolved:
+        winning_outcome = "YES" if resolution.outcome == 0 else "NO"
+        print(f"  RESOLVED: {winning_outcome} won")
+        print(f"  Contract: {market.contract_address}")
+        print(f"  ⚠️  Run: python examples/claim_winnings.py {market.contract_address}")
+```
+
+### Check Pending Claims
+
+See if you have any claims waiting in the queue:
+
+```python
+pending = client.get_pending_claims()
+
+if pending:
+    print(f"You have {len(pending)} pending claims")
+    for claim in pending:
+        print(f"  Market: {claim.get('marketId')}")
+        print(f"  Status: {claim.get('status')}")
+else:
+    print("No pending claims")
+```
+
+### Check Failed Claims
+
+If a claim failed, you can retry:
+
+```python
+failed = client.get_failed_claims()
+
+if failed:
+    print(f"You have {len(failed)} failed claims")
+    for claim in failed:
+        print(f"  Market: {claim.get('marketId')}")
+        print(f"  Error: {claim.get('error')}")
+        print(f"  Contract: {claim.get('contractAddress')}")
+        
+        # Retry
+        try:
+            result = client.claim_winnings(claim['contractAddress'])
+            print(f"  Retry successful: {result['tx_hash']}")
+        except Exception as e:
+            print(f"  Retry failed: {e}")
+else:
+    print("No failed claims")
+```
+
+## Complete Claiming Script
+
+Here's a complete script to check and claim all your winnings:
+
+```python claim_all.py
+import os
+import time
+from dotenv import load_dotenv
+from turbine_client import TurbineClient
+
+load_dotenv()
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key=os.getenv("TURBINE_PRIVATE_KEY"),
+)
+
+print(f"Wallet: {client.address}\n")
+
+# Get all positions
+positions = client.get_user_positions(
+    address=client.address,
+    chain_id=137
+)
+
+print(f"Found {len(positions)} positions\n")
+
+resolved_markets = []
+
+# Check each position for resolution
+for pos in positions:
+    try:
+        market = client.get_market(pos.market_id)
+        resolution = client.get_resolution(pos.market_id)
+        
+        if resolution and resolution.resolved:
+            winning_outcome = "YES" if resolution.outcome == 0 else "NO"
+            
+            # Calculate potential payout
+            winning_shares = pos.yes_shares if resolution.outcome == 0 else pos.no_shares
+            payout = winning_shares / 1e6  # Convert to USDC
+            
+            if winning_shares > 0:
+                print(f"✓ {market.question[:50]}...")
+                print(f"  Winner: {winning_outcome}")
+                print(f"  Your {winning_outcome} shares: {winning_shares / 1e6:.2f}")
+                print(f"  Payout: ${payout:.2f} USDC")
+                print(f"  Contract: {market.contract_address}\n")
+                
+                resolved_markets.append(market.contract_address)
+    
+    except Exception as e:
+        print(f"Error checking {pos.market_id}: {e}")
+
+if not resolved_markets:
+    print("No winnings to claim!")
+    exit(0)
+
+# Claim all at once
+print(f"\nClaiming from {len(resolved_markets)} market(s)...\n")
+
+if len(resolved_markets) == 1:
+    # Single claim
+    result = client.claim_winnings(resolved_markets[0])
+    print(f"Claimed! Transaction: {result.get('tx_hash')}")
+else:
+    # Batch claim
+    result = client.batch_claim_winnings(resolved_markets)
+    print(f"Batch claimed! Transaction: {result.get('txHash')}")
+
+print("\nDone!")
+client.close()
+```
+
+Run it:
+
+```bash
+python claim_all.py
+```
+
+## Troubleshooting
+
+### "No claimable balance" Error
+
+This means:
+- You don't have winning shares in this market
+- You already claimed from this market
+- The market hasn't resolved yet
+
+Double-check the resolution status and your position.
+
+### "Market not resolved" Error
+
+The market hasn't been resolved by the UMA Oracle yet. Quick markets typically resolve within a few minutes after expiration, but can take up to an hour.
+
+### "Invalid contract address" Error
+
+Make sure you're using the **contract address** from `market.contract_address`, not the market ID.
+
+### Transaction Pending Forever
+
+Check the transaction status:
+
+```python
+pending = client.get_pending_claims()
+
+for claim in pending:
+    print(f"Market: {claim['marketId']}")
+    print(f"Status: {claim['status']}")
+    print(f"Submitted: {claim['timestamp']}")
+```
+
+If stuck for > 30 minutes, contact support.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build a Trading Bot" icon="robot" href="/guides/building-bots">
+    Automate claiming in your bot
+  </Card>
+  <Card title="Market Data" icon="chart-line" href="/guides/market-data">
+    Track your positions
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/client">
+    Complete API documentation
+  </Card>
+  <Card title="Example Code" icon="file-code" href="https://github.com/ojo-network/turbine-py-client/tree/main/examples">
+    Browse claiming examples on GitHub
+  </Card>
+</CardGroup>

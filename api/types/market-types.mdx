@@ -1,0 +1,324 @@
+---
+title: "Market Types"
+description: "Data types for markets, resolutions, and statistics"
+---
+
+## Market
+
+A prediction market on the Turbine platform.
+
+<ResponseField name="id" type="str">
+  Unique market identifier (hex string)
+</ResponseField>
+
+<ResponseField name="chain_id" type="int">
+  Blockchain chain ID (137 = Polygon, 43114 = Avalanche, 84532 = Base Sepolia)
+</ResponseField>
+
+<ResponseField name="contract_address" type="str">
+  Market contract address (ERC1155 for outcome tokens)
+</ResponseField>
+
+<ResponseField name="settlement_address" type="str">
+  Settlement contract address (holds USDC collateral)
+</ResponseField>
+
+<ResponseField name="question" type="str">
+  Market question (e.g., "Will BTC be above $97,250 at 3:15 PM?")
+</ResponseField>
+
+<ResponseField name="description" type="str">
+  Detailed market description
+</ResponseField>
+
+<ResponseField name="category" type="str">
+  Market category (e.g., "crypto", "sports", "politics")
+</ResponseField>
+
+<ResponseField name="expiration" type="int">
+  Unix timestamp when the market expires
+</ResponseField>
+
+<ResponseField name="maker" type="str">
+  Address of the market creator
+</ResponseField>
+
+<ResponseField name="resolved" type="bool">
+  Whether the market has been resolved
+</ResponseField>
+
+<ResponseField name="winning_outcome" type="int | None">
+  Winning outcome (0 = YES, 1 = NO) if resolved, otherwise `None`
+</ResponseField>
+
+<ResponseField name="volume" type="int">
+  Total trading volume (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="created_at" type="int">
+  Creation timestamp
+</ResponseField>
+
+<ResponseField name="updated_at" type="int">
+  Last update timestamp
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `Market` instance from an API response dictionary.
+
+### Example
+
+```python
+markets = client.get_markets()
+
+for market in markets:
+    print(f"Market: {market.question}")
+    print(f"  Chain: {market.chain_id}")
+    print(f"  Expires: {market.expiration}")
+    print(f"  Volume: ${market.volume / 1e6:.2f}")
+    print(f"  Resolved: {market.resolved}")
+    if market.resolved:
+        outcome = "YES" if market.winning_outcome == 0 else "NO"
+        print(f"  Winner: {outcome}")
+```
+
+---
+
+## QuickMarket
+
+A 15-minute BTC/ETH quick market.
+
+<ResponseField name="id" type="int">
+  Internal database ID
+</ResponseField>
+
+<ResponseField name="market_id" type="str">
+  Market identifier (hex string)
+</ResponseField>
+
+<ResponseField name="asset" type="str">
+  Asset symbol ("BTC" or "ETH")
+</ResponseField>
+
+<ResponseField name="interval_minutes" type="int">
+  Market duration in minutes (typically 15)
+</ResponseField>
+
+<ResponseField name="start_price" type="int">
+  Strike price scaled by 1e6 (divide by 1e6 to get USD price)
+</ResponseField>
+
+<ResponseField name="end_price" type="int | None">
+  Final settlement price if resolved, otherwise `None`
+</ResponseField>
+
+<ResponseField name="start_time" type="int">
+  Unix timestamp when the market started
+</ResponseField>
+
+<ResponseField name="end_time" type="int">
+  Unix timestamp when the market expires
+</ResponseField>
+
+<ResponseField name="resolved" type="bool">
+  Whether the market has been resolved
+</ResponseField>
+
+<ResponseField name="outcome" type="int | None">
+  Winning outcome (0 = YES, 1 = NO) if resolved
+</ResponseField>
+
+<ResponseField name="price_source" type="str">
+  Price oracle source (e.g., "Pyth")
+</ResponseField>
+
+<ResponseField name="created_at" type="int">
+  Creation timestamp
+</ResponseField>
+
+<ResponseField name="contract_address" type="str">
+  Market contract address
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `QuickMarket` instance from an API response dictionary.
+
+### Example
+
+```python
+quick_market = client.get_quick_market("BTC")
+
+print(f"Asset: {quick_market.asset}")
+print(f"Strike: ${quick_market.start_price / 1e6:,.2f}")
+print(f"Ends at: {quick_market.end_time}")
+print(f"Resolved: {quick_market.resolved}")
+
+if quick_market.resolved:
+    outcome = "YES" if quick_market.outcome == 0 else "NO"
+    print(f"Winner: {outcome}")
+    print(f"Final price: ${quick_market.end_price / 1e6:,.2f}")
+```
+
+<Note>
+  Currently, only BTC quick markets are active. The `get_quick_market()` method accepts "BTC" as the asset parameter.
+</Note>
+
+---
+
+## Resolution
+
+Market resolution status from the UMA oracle.
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="assertion_id" type="str">
+  UMA assertion ID
+</ResponseField>
+
+<ResponseField name="outcome" type="int">
+  Winning outcome (0 = YES, 1 = NO)
+</ResponseField>
+
+<ResponseField name="resolved" type="bool">
+  Whether the resolution is finalized
+</ResponseField>
+
+<ResponseField name="timestamp" type="int">
+  Resolution timestamp
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `Resolution` instance from an API response dictionary.
+
+### Example
+
+```python
+resolution = client.get_resolution(market_id="0xabc...")
+
+if resolution.resolved:
+    outcome = "YES" if resolution.outcome == 0 else "NO"
+    print(f"Market resolved: {outcome} won")
+    print(f"Assertion ID: {resolution.assertion_id}")
+else:
+    print("Market not yet resolved")
+```
+
+---
+
+## MarketStats
+
+Statistics for a specific market.
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="contract_address" type="str">
+  Market contract address
+</ResponseField>
+
+<ResponseField name="last_price" type="int">
+  Last traded price (scaled by 1e6)
+</ResponseField>
+
+<ResponseField name="total_volume" type="int">
+  Total trading volume (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="volume_24h" type="int">
+  24-hour trading volume (in USDC with 6 decimals)
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `MarketStats` instance from an API response dictionary.
+
+### Example
+
+```python
+stats = client.get_market_stats(market_id="0xabc...")
+
+print(f"Last Price: {stats.last_price / 1e6:.2%}")
+print(f"Total Volume: ${stats.total_volume / 1e6:,.2f}")
+print(f"24h Volume: ${stats.volume_24h / 1e6:,.2f}")
+```
+
+---
+
+## ChainStats
+
+Statistics for a single blockchain.
+
+<ResponseField name="chain_id" type="int">
+  Chain ID (137 = Polygon, 43114 = Avalanche)
+</ResponseField>
+
+<ResponseField name="total_volume" type="int">
+  Total volume on this chain (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="total_trades" type="int">
+  Total number of trades on this chain
+</ResponseField>
+
+<ResponseField name="updated_at" type="int">
+  Last update timestamp
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `ChainStats` instance from an API response dictionary.
+
+---
+
+## PlatformStats
+
+Platform-wide statistics across all chains.
+
+<ResponseField name="chains" type="list[ChainStats]">
+  List of per-chain statistics
+</ResponseField>
+
+<ResponseField name="total_volume" type="int">
+  Total platform volume (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="total_trades" type="int">
+  Total number of trades across all chains
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `PlatformStats` instance from an API response dictionary.
+
+### Example
+
+```python
+stats = client.get_platform_stats()
+
+print(f"Platform Total Volume: ${stats.total_volume / 1e6:,.2f}")
+print(f"Platform Total Trades: {stats.total_trades:,}")
+print("\nPer-Chain Breakdown:")
+for chain in stats.chains:
+    chain_name = "Polygon" if chain.chain_id == 137 else "Avalanche"
+    print(f"  {chain_name}:")
+    print(f"    Volume: ${chain.total_volume / 1e6:,.2f}")
+    print(f"    Trades: {chain.total_trades:,}")
+```

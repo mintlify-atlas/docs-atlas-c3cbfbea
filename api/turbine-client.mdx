@@ -1,0 +1,1268 @@
+---
+title: "TurbineClient"
+description: "Complete reference for the TurbineClient class - HTTP client for Turbine CLOB API"
+---
+
+## Overview
+
+The `TurbineClient` class is the main interface for interacting with the Turbine CLOB API. It provides three access levels:
+
+- **Level 0 (Public)**: No authentication, read-only market data
+- **Level 1 (Signing)**: Private key for order signing
+- **Level 2 (Full)**: Private key + API credentials for all endpoints
+
+All operations are API-routed through `api.turbinefi.com` - no direct RPC or blockchain node access required.
+
+## Constructor
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="0x...",  # Optional: for order signing
+    api_key_id="your_key_id",  # Optional: for authenticated endpoints
+    api_private_key="your_ed25519_key",  # Optional: for bearer token auth
+    timeout=30.0
+)
+```
+
+<ParamField path="host" type="str" required>
+  The API host URL (e.g., `https://api.turbinefi.com`)
+</ParamField>
+
+<ParamField path="chain_id" type="int" required>
+  The blockchain chain ID:
+  - `137` - Polygon mainnet (recommended)
+  - `43114` - Avalanche mainnet
+  - `84532` - Base Sepolia testnet (currently non-operational)
+</ParamField>
+
+<ParamField path="private_key" type="str" default="None">
+  Optional wallet private key (hex string with `0x` prefix) for order signing. Required for Level 1+ access.
+</ParamField>
+
+<ParamField path="api_key_id" type="str" default="None">
+  Optional API key ID for bearer token authentication. Required for Level 2 access.
+</ParamField>
+
+<ParamField path="api_private_key" type="str" default="None">
+  Optional Ed25519 private key for bearer token signing. Required for Level 2 access.
+</ParamField>
+
+<ParamField path="timeout" type="float" default="30.0">
+  HTTP request timeout in seconds.
+</ParamField>
+
+## Properties
+
+### host
+
+```python
+client.host  # Returns: str
+```
+
+Get the configured API host URL.
+
+### chain_id
+
+```python
+client.chain_id  # Returns: int
+```
+
+Get the configured chain ID.
+
+### address
+
+```python
+client.address  # Returns: Optional[str]
+```
+
+Get the wallet address if a signer is configured, otherwise `None`.
+
+### can_sign
+
+```python
+client.can_sign  # Returns: bool
+```
+
+Check if the client can sign orders (has a private key configured).
+
+### has_auth
+
+```python
+client.has_auth  # Returns: bool
+```
+
+Check if the client has bearer token authentication configured.
+
+## Context Manager
+
+The client can be used as a context manager to ensure proper cleanup:
+
+```python
+with TurbineClient(host, chain_id, private_key) as client:
+    markets = client.get_markets()
+    # Client automatically closed on exit
+```
+
+## Public Endpoints
+
+These methods require no authentication (Level 0 access).
+
+### get_health
+
+```python
+client.get_health()
+```
+
+Check API health status.
+
+<ResponseField name="status" type="str">
+  Health status (e.g., "ok")
+</ResponseField>
+
+**Example:**
+
+```python
+health = client.get_health()
+print(health)  # {"status": "ok", "timestamp": 1234567890}
+```
+
+### get_markets
+
+```python
+client.get_markets(chain_id=None)
+```
+
+Get all markets.
+
+<ParamField path="chain_id" type="int" default="None">
+  Optional chain ID to filter markets
+</ParamField>
+
+<ResponseField name="markets" type="List[Market]">
+  List of Market objects with fields:
+  - `market_id` (str): Unique market identifier
+  - `question` (str): Market question
+  - `settlement_address` (str): Settlement contract address
+  - `start_time` (int): Market start timestamp
+  - `end_time` (int): Market end timestamp
+  - `resolved` (bool): Whether the market is resolved
+</ResponseField>
+
+**Example:**
+
+```python
+markets = client.get_markets(chain_id=137)
+for market in markets:
+    print(f"{market.market_id}: {market.question}")
+```
+
+### get_market
+
+```python
+client.get_market(market_id)
+```
+
+Get statistics for a specific market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID (hex string)
+</ParamField>
+
+<ResponseField name="MarketStats" type="MarketStats">
+  Market statistics including volume, liquidity, and price data
+</ResponseField>
+
+**Example:**
+
+```python
+stats = client.get_market("0x1234...")
+print(f"Volume: ${stats.volume / 1e6:.2f}")
+print(f"Yes price: {stats.yes_price / 1e6:.2%}")
+```
+
+### get_orderbook
+
+```python
+client.get_orderbook(market_id, outcome=None)
+```
+
+Get the orderbook snapshot for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID
+</ParamField>
+
+<ParamField path="outcome" type="Outcome" default="None">
+  Optional outcome filter (`Outcome.YES` or `Outcome.NO`)
+</ParamField>
+
+<ResponseField name="OrderBookSnapshot" type="OrderBookSnapshot">
+  Orderbook with bids and asks:
+  - `market_id` (str): Market identifier
+  - `bids` (List[PriceLevel]): Buy orders
+  - `asks` (List[PriceLevel]): Sell orders
+  - `last_update` (int): Last update timestamp
+</ResponseField>
+
+**Example:**
+
+```python
+book = client.get_orderbook(market_id)
+if book.bids:
+    best_bid = book.bids[0]
+    print(f"Best bid: {best_bid.price / 1e6:.2%} for {best_bid.size / 1e6:.2f} shares")
+```
+
+### get_trades
+
+```python
+client.get_trades(market_id, limit=100)
+```
+
+Get recent trades for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID
+</ParamField>
+
+<ParamField path="limit" type="int" default="100">
+  Maximum number of trades to return
+</ParamField>
+
+<ResponseField name="trades" type="List[Trade]">
+  List of Trade objects
+</ResponseField>
+
+**Example:**
+
+```python
+trades = client.get_trades(market_id, limit=50)
+for trade in trades:
+    print(f"Price: {trade.price / 1e6:.2%}, Size: {trade.size / 1e6:.2f}")
+```
+
+### get_stats
+
+```python
+client.get_stats(market_id)
+```
+
+Get statistics for a market (alias for `get_market`).
+
+### get_platform_stats
+
+```python
+client.get_platform_stats()
+```
+
+Get platform-wide statistics.
+
+<ResponseField name="PlatformStats" type="PlatformStats">
+  Platform statistics including total volume, markets, and users
+</ResponseField>
+
+**Example:**
+
+```python
+stats = client.get_platform_stats()
+print(f"Total volume: ${stats.total_volume / 1e6:.2f}")
+print(f"Active markets: {stats.active_markets}")
+```
+
+### get_holders
+
+```python
+client.get_holders(market_id, limit=100)
+```
+
+Get top position holders for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID
+</ParamField>
+
+<ParamField path="limit" type="int" default="100">
+  Maximum number of holders to return
+</ParamField>
+
+<ResponseField name="holders" type="List[Holder]">
+  List of top holders with addresses and position sizes
+</ResponseField>
+
+### get_quick_market
+
+```python
+client.get_quick_market(asset)
+```
+
+Get the active quick market for an asset.
+
+<ParamField path="asset" type="str" required>
+  The asset symbol (e.g., `"BTC"`, `"ETH"`)
+</ParamField>
+
+<ResponseField name="QuickMarket" type="QuickMarket">
+  Active quick market with:
+  - `market_id` (str): Market identifier
+  - `asset` (str): Asset symbol
+  - `start_price` (int): Strike price (6 decimals)
+  - `start_time` (int): Market start timestamp
+  - `end_time` (int): Market end timestamp
+  - `settlement_address` (str): Settlement contract
+</ResponseField>
+
+**Example:**
+
+```python
+market = client.get_quick_market("BTC")
+strike_price = market.start_price / 1e6
+print(f"BTC market strike: ${strike_price:,.2f}")
+```
+
+### get_quick_market_history
+
+```python
+client.get_quick_market_history(asset, limit=100)
+```
+
+Get historical quick markets for an asset.
+
+<ParamField path="asset" type="str" required>
+  The asset symbol
+</ParamField>
+
+<ParamField path="limit" type="int" default="100">
+  Maximum number of markets to return
+</ParamField>
+
+<ResponseField name="markets" type="List[QuickMarket]">
+  List of historical quick markets
+</ResponseField>
+
+### get_quick_market_price
+
+```python
+client.get_quick_market_price(asset)
+```
+
+Get the current price for an asset.
+
+<ParamField path="asset" type="str" required>
+  The asset symbol (e.g., `"BTC"`, `"ETH"`)
+</ParamField>
+
+<ResponseField name="AssetPrice" type="AssetPrice">
+  Current asset price with timestamp
+</ResponseField>
+
+**Example:**
+
+```python
+price = client.get_quick_market_price("BTC")
+print(f"BTC: ${price.price / 1e6:,.2f}")
+```
+
+### get_quick_market_price_history
+
+```python
+client.get_quick_market_price_history(asset, limit=100)
+```
+
+Get price history for an asset.
+
+<ParamField path="asset" type="str" required>
+  The asset symbol
+</ParamField>
+
+<ParamField path="limit" type="int" default="100">
+  Maximum number of prices to return
+</ParamField>
+
+<ResponseField name="prices" type="List[AssetPrice]">
+  List of historical prices
+</ResponseField>
+
+### get_resolution
+
+```python
+client.get_resolution(market_id)
+```
+
+Get resolution status for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID
+</ParamField>
+
+<ResponseField name="Resolution" type="Resolution">
+  Resolution status:
+  - `resolved` (bool): Whether the market is resolved
+  - `winning_outcome` (int): Winning outcome (0=YES, 1=NO)
+  - `resolution_time` (int): Resolution timestamp
+</ResponseField>
+
+**Example:**
+
+```python
+resolution = client.get_resolution(market_id)
+if resolution.resolved:
+    outcome = "YES" if resolution.winning_outcome == 0 else "NO"
+    print(f"Market resolved: {outcome} won")
+```
+
+### get_failed_trades
+
+```python
+client.get_failed_trades()
+```
+
+Get all failed trades.
+
+<ResponseField name="failed_trades" type="List[FailedTrade]">
+  List of failed trade records
+</ResponseField>
+
+### get_pending_trades
+
+```python
+client.get_pending_trades()
+```
+
+Get all pending trades.
+
+<ResponseField name="pending_trades" type="List[PendingTrade]">
+  List of pending trade records
+</ResponseField>
+
+### get_failed_claims
+
+```python
+client.get_failed_claims()
+```
+
+Get all failed claims.
+
+<ResponseField name="failed_claims" type="List[FailedClaim]">
+  List of failed claim records
+</ResponseField>
+
+### get_pending_claims
+
+```python
+client.get_pending_claims()
+```
+
+Get all pending claims.
+
+<ResponseField name="pending_claims" type="List[PendingClaim]">
+  List of pending claim records
+</ResponseField>
+
+### get_settlement_status
+
+```python
+client.get_settlement_status(tx_hash)
+```
+
+Get settlement status for a transaction.
+
+<ParamField path="tx_hash" type="str" required>
+  The transaction hash
+</ParamField>
+
+<ResponseField name="SettlementStatus" type="SettlementStatus">
+  Settlement status with confirmation details
+</ResponseField>
+
+## Order Management
+
+These methods require a private key (Level 1 access).
+
+### create_order
+
+```python
+client.create_order(order_args, settlement_address=None)
+```
+
+Create and sign an order.
+
+<ParamField path="order_args" type="OrderArgs" required>
+  Order arguments:
+  - `market_id` (str): Market identifier
+  - `side` (Side): `Side.BUY` or `Side.SELL`
+  - `outcome` (Outcome): `Outcome.YES` or `Outcome.NO`
+  - `price` (int): Price scaled by 1e6 (0-1,000,000)
+  - `size` (int): Size with 6 decimals
+  - `expiration` (int): Unix timestamp
+</ParamField>
+
+<ParamField path="settlement_address" type="str" default="None">
+  Optional settlement contract address. If not provided, fetched from market.
+</ParamField>
+
+<ResponseField name="SignedOrder" type="SignedOrder">
+  A signed order ready for submission
+</ResponseField>
+
+**Example:**
+
+```python
+from turbine_client import OrderArgs, Side, Outcome
+import time
+
+order_args = OrderArgs(
+    market_id="0x1234...",
+    side=Side.BUY,
+    outcome=Outcome.YES,
+    price=600_000,  # 60%
+    size=1_000_000,  # 1 share
+    expiration=int(time.time()) + 3600
+)
+signed_order = client.create_order(order_args)
+```
+
+### create_limit_buy
+
+```python
+client.create_limit_buy(
+    market_id,
+    outcome,
+    price,
+    size,
+    expiration=None,
+    settlement_address=None
+)
+```
+
+Create a limit buy order.
+
+<ParamField path="market_id" type="str" required>
+  The market ID
+</ParamField>
+
+<ParamField path="outcome" type="Outcome" required>
+  `Outcome.YES` or `Outcome.NO`
+</ParamField>
+
+<ParamField path="price" type="int" required>
+  Price scaled by 1e6 (1 to 999,999)
+</ParamField>
+
+<ParamField path="size" type="int" required>
+  Size with 6 decimals
+</ParamField>
+
+<ParamField path="expiration" type="int" default="None">
+  Optional expiration timestamp. Defaults to 1 hour from now.
+</ParamField>
+
+<ParamField path="settlement_address" type="str" default="None">
+  Optional settlement contract address
+</ParamField>
+
+<ResponseField name="SignedOrder" type="SignedOrder">
+  A signed buy order
+</ResponseField>
+
+**Example:**
+
+```python
+from turbine_client import Outcome
+
+# Buy 10 YES shares at 55%
+order = client.create_limit_buy(
+    market_id="0x1234...",
+    outcome=Outcome.YES,
+    price=550_000,
+    size=10_000_000
+)
+```
+
+### create_limit_sell
+
+```python
+client.create_limit_sell(
+    market_id,
+    outcome,
+    price,
+    size,
+    expiration=None,
+    settlement_address=None
+)
+```
+
+Create a limit sell order.
+
+<ParamField path="market_id" type="str" required>
+  The market ID
+</ParamField>
+
+<ParamField path="outcome" type="Outcome" required>
+  `Outcome.YES` or `Outcome.NO`
+</ParamField>
+
+<ParamField path="price" type="int" required>
+  Price scaled by 1e6 (1 to 999,999)
+</ParamField>
+
+<ParamField path="size" type="int" required>
+  Size with 6 decimals
+</ParamField>
+
+<ParamField path="expiration" type="int" default="None">
+  Optional expiration timestamp
+</ParamField>
+
+<ParamField path="settlement_address" type="str" default="None">
+  Optional settlement contract address
+</ParamField>
+
+<ResponseField name="SignedOrder" type="SignedOrder">
+  A signed sell order
+</ResponseField>
+
+**Example:**
+
+```python
+from turbine_client import Outcome
+
+# Sell 5 NO shares at 40%
+order = client.create_limit_sell(
+    market_id="0x1234...",
+    outcome=Outcome.NO,
+    price=400_000,
+    size=5_000_000
+)
+```
+
+## Authenticated Endpoints
+
+These methods require both a private key and API credentials (Level 2 access).
+
+### post_order
+
+```python
+client.post_order(signed_order)
+```
+
+Submit a signed order to the orderbook.
+
+<ParamField path="signed_order" type="SignedOrder" required>
+  The signed order from `create_order`, `create_limit_buy`, or `create_limit_sell`
+</ParamField>
+
+<ResponseField name="response" type="Dict[str, Any]">
+  Order submission response:
+  - `order_hash` (str): Unique order identifier
+  - `status` (str): Order status
+</ResponseField>
+
+**Example:**
+
+```python
+order = client.create_limit_buy(market_id, Outcome.YES, 500_000, 1_000_000)
+response = client.post_order(order)
+print(f"Order hash: {response['order_hash']}")
+```
+
+### get_orders
+
+```python
+client.get_orders(trader=None, market_id=None, status=None)
+```
+
+Get orders with optional filters.
+
+<ParamField path="trader" type="str" default="None">
+  Optional trader address to filter
+</ParamField>
+
+<ParamField path="market_id" type="str" default="None">
+  Optional market ID to filter
+</ParamField>
+
+<ParamField path="status" type="str" default="None">
+  Optional status filter: `"open"`, `"filled"`, or `"cancelled"`
+</ParamField>
+
+<ResponseField name="orders" type="List[Order]">
+  List of Order objects
+</ResponseField>
+
+**Example:**
+
+```python
+open_orders = client.get_orders(status="open")
+for order in open_orders:
+    print(f"{order.order_hash}: {order.side} {order.size / 1e6:.2f} @ {order.price / 1e6:.2%}")
+```
+
+### get_order
+
+```python
+client.get_order(order_hash)
+```
+
+Get a specific order by hash.
+
+<ParamField path="order_hash" type="str" required>
+  The order hash
+</ParamField>
+
+<ResponseField name="Order" type="Order">
+  Order details
+</ResponseField>
+
+### cancel_order
+
+```python
+client.cancel_order(order_hash, market_id=None, side=None)
+```
+
+Cancel an order.
+
+<ParamField path="order_hash" type="str" required>
+  The order hash to cancel
+</ParamField>
+
+<ParamField path="market_id" type="str" default="None">
+  Optional market ID for validation
+</ParamField>
+
+<ParamField path="side" type="Side" default="None">
+  Optional side for validation
+</ParamField>
+
+<ResponseField name="response" type="Dict[str, Any]">
+  Cancellation response
+</ResponseField>
+
+**Example:**
+
+```python
+response = client.cancel_order("0xabcd...")
+print(f"Cancelled: {response['success']}")
+```
+
+### cancel_market_orders
+
+```python
+client.cancel_market_orders(market_id)
+```
+
+Cancel all orders for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID
+</ParamField>
+
+<ResponseField name="response" type="Dict[str, Any]">
+  Cancellation response with count of cancelled orders
+</ResponseField>
+
+**Example:**
+
+```python
+response = client.cancel_market_orders(market_id)
+print(f"Cancelled {response['count']} orders")
+```
+
+### get_positions
+
+```python
+client.get_positions(market_id, user_address=None)
+```
+
+Get positions for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID
+</ParamField>
+
+<ParamField path="user_address" type="str" default="None">
+  Optional user address to filter
+</ParamField>
+
+<ResponseField name="positions" type="List[Position]">
+  List of Position objects with:
+  - `yes_shares` (int): YES token balance
+  - `no_shares` (int): NO token balance
+  - `total_cost` (int): Total cost basis
+  - `total_revenue` (int): Total revenue from sales
+</ResponseField>
+
+### get_user_positions
+
+```python
+client.get_user_positions(address, chain_id=None)
+```
+
+Get all positions for a user.
+
+<ParamField path="address" type="str" required>
+  The user's address
+</ParamField>
+
+<ParamField path="chain_id" type="int" default="None">
+  Optional chain ID to filter
+</ParamField>
+
+<ResponseField name="positions" type="List[Position]">
+  List of all positions for the user
+</ResponseField>
+
+**Example:**
+
+```python
+positions = client.get_user_positions(client.address)
+for pos in positions:
+    print(f"Market {pos.market_id}: {pos.yes_shares / 1e6:.2f} YES, {pos.no_shares / 1e6:.2f} NO")
+```
+
+### get_user_orders
+
+```python
+client.get_user_orders(address, status=None)
+```
+
+Get all orders for a user.
+
+<ParamField path="address" type="str" required>
+  The user's address
+</ParamField>
+
+<ParamField path="status" type="str" default="None">
+  Optional status filter
+</ParamField>
+
+<ResponseField name="orders" type="List[Order]">
+  List of orders
+</ResponseField>
+
+### get_user_activity
+
+```python
+client.get_user_activity(address)
+```
+
+Get trading activity summary for a user.
+
+<ParamField path="address" type="str" required>
+  The user's address
+</ParamField>
+
+<ResponseField name="UserActivity" type="UserActivity">
+  User activity summary with trade counts and volumes
+</ResponseField>
+
+### get_user_stats
+
+```python
+client.get_user_stats()
+```
+
+Get statistics for the authenticated user.
+
+<ResponseField name="UserStats" type="UserStats">
+  User statistics including:
+  - `total_cost` (int): Total amount spent
+  - `total_invested` (int): Net amount invested
+  - `position_value` (int): Current position value
+  - `pnl` (int): Profit and loss
+</ResponseField>
+
+**Example:**
+
+```python
+stats = client.get_user_stats()
+print(f"PnL: ${stats.pnl / 1e6:.2f}")
+print(f"Position value: ${stats.position_value / 1e6:.2f}")
+```
+
+### get_claimable_positions
+
+```python
+client.get_claimable_positions(address=None, verify=True)
+```
+
+Get resolved markets where the user has winning tokens to claim.
+
+<ParamField path="address" type="str" default="None">
+  User address. Defaults to the signer's address.
+</ParamField>
+
+<ParamField path="verify" type="bool" default="True">
+  If True, verify each position on-chain and backfill already-claimed ones. Slower but handles pre-fix data.
+</ParamField>
+
+<ResponseField name="result" type="Dict[str, Any]">
+  Dictionary with:
+  - `claimable` (List[ClaimablePosition]): Claimable positions
+  - `count` (int): Number of claimable positions
+  - `totalPayout` (str): Total payout amount
+</ResponseField>
+
+**Example:**
+
+```python
+result = client.get_claimable_positions()
+print(f"Found {result['count']} claimable positions worth ${result['totalPayout']}")
+for pos in result['claimable']:
+    print(f"  {pos.market_id}: {pos.outcome} - ${pos.payout / 1e6:.2f}")
+```
+
+## Relayer Endpoints (Gasless Operations)
+
+These methods use Turbine's gasless relayer for zero-gas transactions.
+
+### approve_usdc_for_settlement
+
+```python
+client.approve_usdc_for_settlement(settlement_address=None)
+```
+
+Approve a settlement contract to transfer USDC using gasless permit. This is a one-time operation per settlement contract.
+
+<ParamField path="settlement_address" type="str" default="None">
+  The settlement contract to approve. If not provided, uses the default for the chain.
+</ParamField>
+
+<ResponseField name="response" type="Dict[str, Any]">
+  The relayer response with `tx_hash` on success
+</ResponseField>
+
+**Example:**
+
+```python
+response = client.approve_usdc_for_settlement()
+print(f"Approval tx: {response['tx_hash']}")
+```
+
+### approve_ctf_for_settlement
+
+```python
+client.approve_ctf_for_settlement(settlement_address=None)
+```
+
+Approve a settlement contract to transfer CTF tokens using gasless permit.
+
+<ParamField path="settlement_address" type="str" default="None">
+  The settlement contract to approve
+</ParamField>
+
+<ResponseField name="response" type="Dict[str, Any]">
+  The relayer response with `tx_hash` on success
+</ResponseField>
+
+### approve_usdc
+
+```python
+client.approve_usdc(amount, spender=None)
+```
+
+Approve USDC spending via gasless permit.
+
+<ParamField path="amount" type="int" required>
+  The amount to approve (with 6 decimals for USDC)
+</ParamField>
+
+<ParamField path="spender" type="str" default="None">
+  The spender address. Defaults to settlement contract.
+</ParamField>
+
+<ResponseField name="response" type="Dict[str, Any]">
+  The relayer response with `tx_hash` on success
+</ResponseField>
+
+### claim_winnings
+
+```python
+client.claim_winnings(market_contract_address)
+```
+
+Claim winnings from a resolved market using gasless permit.
+
+<ParamField path="market_contract_address" type="str" required>
+  The market's contract address
+</ParamField>
+
+<ResponseField name="response" type="Dict[str, Any]">
+  The relayer response with `tx_hash` on success
+</ResponseField>
+
+**Example:**
+
+```python
+response = client.claim_winnings("0x1234...")
+print(f"Claim tx: {response['tx_hash']}")
+```
+
+### batch_claim_winnings
+
+```python
+client.batch_claim_winnings(market_contract_addresses)
+```
+
+Claim winnings from multiple resolved markets in a single transaction.
+
+<ParamField path="market_contract_addresses" type="List[str]" required>
+  List of market contract addresses to claim from
+</ParamField>
+
+<ResponseField name="response" type="Dict[str, Any]">
+  The relayer response with `tx_hash` on success
+</ResponseField>
+
+**Example:**
+
+```python
+markets = ["0x1234...", "0x5678...", "0xabcd..."]
+response = client.batch_claim_winnings(markets)
+print(f"Batch claim tx: {response['tx_hash']}")
+```
+
+### claim_all_winnings
+
+```python
+client.claim_all_winnings()
+```
+
+Discover and claim all winnings using Multicall3 discovery + gasless relayer.
+
+<ResponseField name="response" type="Dict[str, Any]">
+  The relayer response with `tx_hash` on success
+</ResponseField>
+
+**Example:**
+
+```python
+response = client.claim_all_winnings()
+print(f"Claimed all winnings: {response['tx_hash']}")
+```
+
+## Position Discovery
+
+### discover_positions
+
+```python
+client.discover_positions(address=None)
+```
+
+Discover all claimable and mergeable positions via the Turbine API.
+
+<ParamField path="address" type="str" default="None">
+  Wallet address to check. Defaults to the signer's address.
+</ParamField>
+
+<ResponseField name="DiscoveryResult" type="DiscoveryResult">
+  Discovery result with:
+  - `claimable` (List[ClaimablePosition]): Claimable positions
+  - `mergeable` (List[MergeablePosition]): Mergeable positions
+  - `total_claimable_usdc` (float): Total claimable value
+  - `total_mergeable_usdc` (float): Total mergeable value
+  - `markets_scanned` (int): Number of markets scanned
+</ResponseField>
+
+**Example:**
+
+```python
+result = client.discover_positions()
+print(f"Claimable: ${result.total_claimable_usdc:.2f}")
+print(f"Mergeable: ${result.total_mergeable_usdc:.2f}")
+```
+
+### get_mergeable_positions
+
+```python
+client.get_mergeable_positions(address=None)
+```
+
+Get all mergeable positions (paired YES+NO tokens that can be merged to USDC).
+
+<ParamField path="address" type="str" default="None">
+  Wallet address to check. Defaults to the signer's address.
+</ParamField>
+
+<ResponseField name="mergeable" type="List[MergeablePosition]">
+  List of MergeablePosition with merge amounts
+</ResponseField>
+
+## Utility Methods
+
+### get_usdc_balance
+
+```python
+client.get_usdc_balance(owner=None)
+```
+
+Get the USDC balance for an address via the Turbine API.
+
+<ParamField path="owner" type="str" default="None">
+  The address to check. Defaults to signer address.
+</ParamField>
+
+<ResponseField name="balance" type="int">
+  The USDC balance (raw, 6 decimals)
+</ResponseField>
+
+**Example:**
+
+```python
+balance = client.get_usdc_balance()
+print(f"USDC balance: ${balance / 1e6:.2f}")
+```
+
+### get_usdc_allowance
+
+```python
+client.get_usdc_allowance(owner=None, spender=None)
+```
+
+Get the current USDC allowance for a spender via the Turbine API.
+
+<ParamField path="owner" type="str" default="None">
+  The token owner. Defaults to signer address.
+</ParamField>
+
+<ParamField path="spender" type="str" default="None">
+  The spender address. Defaults to settlement contract.
+</ParamField>
+
+<ResponseField name="allowance" type="int">
+  The current allowance (with 6 decimals)
+</ResponseField>
+
+**Example:**
+
+```python
+allowance = client.get_usdc_allowance()
+if allowance > 0:
+    print(f"USDC approved: ${allowance / 1e6:.2f}")
+else:
+    print("USDC not approved - call approve_usdc_for_settlement()")
+```
+
+### sign_usdc_permit
+
+```python
+client.sign_usdc_permit(value, settlement_address=None, deadline=None)
+```
+
+Sign an EIP-2612 permit for USDC approval. This creates a signature for gasless approval.
+
+<ParamField path="value" type="int" required>
+  The amount to approve (with 6 decimals for USDC)
+</ParamField>
+
+<ParamField path="settlement_address" type="str" default="None">
+  The spender (settlement contract). Uses chain default if not provided.
+</ParamField>
+
+<ParamField path="deadline" type="int" default="None">
+  Permit expiration timestamp. Defaults to 1 hour from now.
+</ParamField>
+
+<ResponseField name="PermitSignature" type="PermitSignature">
+  Permit signature that can be included with order submission
+</ResponseField>
+
+### sync_permit_nonce
+
+```python
+client.sync_permit_nonce(contract_address=None)
+```
+
+Sync the local permit nonce with the on-chain state via the API.
+
+<ParamField path="contract_address" type="str" default="None">
+  The token contract. Defaults to USDC.
+</ParamField>
+
+<ResponseField name="nonce" type="int">
+  The current on-chain nonce
+</ResponseField>
+
+## API Credentials
+
+### request_api_credentials (static)
+
+```python
+TurbineClient.request_api_credentials(host, private_key, name=None)
+```
+
+Request API credentials by proving wallet ownership. This is a static method.
+
+<ParamField path="host" type="str" required>
+  The API host URL (e.g., `"https://api.turbinefi.com"`)
+</ParamField>
+
+<ParamField path="private_key" type="str" required>
+  The wallet private key (for signing the auth message)
+</ParamField>
+
+<ParamField path="name" type="str" default="None">
+  Optional friendly name for the API key
+</ParamField>
+
+<ResponseField name="credentials" type="Dict[str, str]">
+  Dictionary with:
+  - `api_key_id`: The API key identifier
+  - `api_private_key`: The Ed25519 private key (save this!)
+  - `message`: Success message
+</ResponseField>
+
+**Example:**
+
+```python
+creds = TurbineClient.request_api_credentials(
+    host="https://api.turbinefi.com",
+    private_key="0x...",
+    name="My Trading Bot"
+)
+print(f"API Key ID: {creds['api_key_id']}")
+print(f"API Private Key: {creds['api_private_key']}")
+```
+
+## Error Handling
+
+The client raises specific exceptions for different error conditions:
+
+- `AuthenticationError`: Missing credentials for the requested operation
+- `TurbineApiError`: API request failed
+- `OrderValidationError`: Invalid order parameters
+- `SignatureError`: Signature generation failed
+
+**Example:**
+
+```python
+from turbine_client.exceptions import AuthenticationError, TurbineApiError
+
+try:
+    order = client.create_limit_buy(market_id, Outcome.YES, 500_000, 1_000_000)
+    response = client.post_order(order)
+except AuthenticationError as e:
+    print(f"Auth error: {e}")
+except TurbineApiError as e:
+    print(f"API error: {e}")
+```
+
+## Resource Cleanup
+
+Always close the client when done to release resources:
+
+```python
+# Option 1: Context manager (recommended)
+with TurbineClient(host, chain_id) as client:
+    markets = client.get_markets()
+
+# Option 2: Manual close
+client = TurbineClient(host, chain_id)
+try:
+    markets = client.get_markets()
+finally:
+    client.close()
+```

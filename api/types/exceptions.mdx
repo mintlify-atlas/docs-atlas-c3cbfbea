@@ -1,0 +1,392 @@
+---
+title: "Exceptions"
+description: "Error types and exception handling"
+---
+
+## Exception Hierarchy
+
+All Turbine exceptions inherit from the base `TurbineError` class:
+
+```python
+TurbineError
+├── TurbineApiError
+├── OrderValidationError
+├── SignatureError
+├── AuthenticationError
+├── ConfigurationError
+└── WebSocketError
+```
+
+---
+
+## TurbineError
+
+Base exception for all Turbine client errors.
+
+<ResponseField name="message" type="str">
+  Human-readable error message
+</ResponseField>
+
+### Usage
+
+```python
+from turbine_client.exceptions import TurbineError
+
+try:
+    client.post_order(signed_order)
+except TurbineError as e:
+    print(f"Turbine error: {e.message}")
+```
+
+---
+
+## TurbineApiError
+
+Raised when the API returns an error response.
+
+<ResponseField name="message" type="str">
+  Error message from the API
+</ResponseField>
+
+<ResponseField name="status_code" type="int | None">
+  HTTP status code (e.g., 400, 404, 500)
+</ResponseField>
+
+<ResponseField name="response_body" type="Any">
+  Raw API response body
+</ResponseField>
+
+### When It's Raised
+
+- **400 Bad Request**: Invalid parameters or malformed request
+- **401 Unauthorized**: Missing or invalid API credentials
+- **403 Forbidden**: Insufficient permissions
+- **404 Not Found**: Resource doesn't exist (market, order, etc.)
+- **429 Too Many Requests**: Rate limit exceeded
+- **500 Internal Server Error**: Server-side error
+
+### Example
+
+```python
+from turbine_client.exceptions import TurbineApiError
+
+try:
+    result = client.post_order(signed_order)
+except TurbineApiError as e:
+    print(f"API Error ({e.status_code}): {e.message}")
+    if e.status_code == 400:
+        print(f"Response: {e.response_body}")
+    elif e.status_code == 429:
+        print("Rate limited - waiting before retry")
+        time.sleep(5)
+```
+
+### Common Error Scenarios
+
+#### Order Below Minimum Size
+
+```python
+# Taker orders must have size × price ≥ $1 USDC
+try:
+    # This will fail: 0.5 shares × $0.60 = $0.30 < $1
+    order = client.create_limit_buy(
+        market_id="0xabc...",
+        outcome=Outcome.YES,
+        price=600_000,  # $0.60
+        size=500_000    # 0.5 shares
+    )
+    client.post_order(order)
+except TurbineApiError as e:
+    print(f"Order rejected: {e.message}")
+    # "Order value must be at least $1 USDC"
+```
+
+#### Invalid Market
+
+```python
+try:
+    orderbook = client.get_orderbook(market_id="0xnonexistent")
+except TurbineApiError as e:
+    if e.status_code == 404:
+        print("Market not found")
+```
+
+---
+
+## OrderValidationError
+
+Raised when order parameters fail validation.
+
+<ResponseField name="message" type="str">
+  Validation error message
+</ResponseField>
+
+<ResponseField name="field" type="str | None">
+  The field that failed validation (if applicable)
+</ResponseField>
+
+### When It's Raised
+
+- Price outside valid range (1 to 999,999)
+- Negative or zero size
+- Invalid expiration timestamp
+- Malformed market ID
+
+### Example
+
+```python
+from turbine_client.exceptions import OrderValidationError
+from turbine_client import OrderArgs, Side, Outcome
+
+try:
+    # Invalid price (must be between 1 and 999,999)
+    order_args = OrderArgs(
+        market_id="0xabc...",
+        side=Side.BUY,
+        outcome=Outcome.YES,
+        price=1_500_000,  # Too high!
+        size=1_000_000,
+        expiration=int(time.time()) + 3600
+    )
+except OrderValidationError as e:
+    print(f"Validation error: {e.message}")
+    if e.field:
+        print(f"Invalid field: {e.field}")
+```
+
+### Validation Rules
+
+| Field | Rule | Error |
+|-------|------|-------|
+| `price` | 1 ≤ price ≤ 999,999 | "Price must be between 1 and 999999" |
+| `size` | size > 0 | "Size must be positive" |
+| `expiration` | expiration > 0 | "Expiration must be positive" |
+
+---
+
+## SignatureError
+
+Raised when order signing or signature verification fails.
+
+<ResponseField name="message" type="str">
+  Error message describing the signature issue
+</ResponseField>
+
+### When It's Raised
+
+- Invalid private key format
+- EIP-712 signing failure
+- Signature verification failure
+- Malformed signature data
+
+### Example
+
+```python
+from turbine_client.exceptions import SignatureError
+
+try:
+    signed_order = client.create_limit_buy(
+        market_id="0xabc...",
+        outcome=Outcome.YES,
+        price=600_000,
+        size=1_000_000
+    )
+except SignatureError as e:
+    print(f"Failed to sign order: {e.message}")
+    # Check private key configuration
+```
+
+---
+
+## AuthenticationError
+
+Raised when API authentication fails.
+
+<ResponseField name="message" type="str">
+  Authentication error message
+</ResponseField>
+
+<ResponseField name="required_level" type="str | None">
+  The authentication level required (e.g., "wallet", "api_key")
+</ResponseField>
+
+### When It's Raised
+
+- Missing API credentials
+- Invalid bearer token
+- Expired credentials
+- Attempting authenticated operations without proper setup
+
+### Example
+
+```python
+from turbine_client.exceptions import AuthenticationError
+
+try:
+    positions = client.get_user_positions("0xabc...")
+except AuthenticationError as e:
+    print(f"Auth error: {e.message}")
+    if e.required_level:
+        print(f"Requires: {e.required_level}")
+    # Re-initialize API credentials
+```
+
+### First-Run Setup
+
+On first run, the SDK automatically registers API credentials:
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient()
+
+# First call to an authenticated endpoint triggers credential registration
+try:
+    positions = client.get_user_positions(client.address)
+except AuthenticationError as e:
+    print(f"Failed to authenticate: {e.message}")
+    # Check that TURBINE_PRIVATE_KEY is set in .env
+```
+
+---
+
+## ConfigurationError
+
+Raised when client configuration is invalid.
+
+<ResponseField name="message" type="str">
+  Configuration error message
+</ResponseField>
+
+### When It's Raised
+
+- Missing required environment variables
+- Invalid chain ID
+- Malformed API host URL
+- Missing `.env` file
+
+### Example
+
+```python
+from turbine_client.exceptions import ConfigurationError
+
+try:
+    client = TurbineClient()
+except ConfigurationError as e:
+    print(f"Configuration error: {e.message}")
+    # Create .env file with required variables
+```
+
+### Required Configuration
+
+```bash
+# .env
+TURBINE_PRIVATE_KEY=0x...  # Required for trading
+CHAIN_ID=137               # Required (137 = Polygon)
+TURBINE_HOST=https://api.turbinefi.com  # Optional (has default)
+```
+
+---
+
+## WebSocketError
+
+Raised when WebSocket connection or streaming fails.
+
+<ResponseField name="message" type="str">
+  WebSocket error message
+</ResponseField>
+
+### When It's Raised
+
+- Connection refused
+- Connection timeout
+- Unexpected disconnect
+- Invalid message format
+
+### Example
+
+```python
+from turbine_client.exceptions import WebSocketError
+from turbine_client.ws import TurbineWebSocketClient
+
+async def stream_orderbook():
+    ws_client = TurbineWebSocketClient()
+    
+    try:
+        await ws_client.connect()
+        await ws_client.subscribe_orderbook("0xabc...")
+        
+        async for message in ws_client.messages():
+            print(message)
+    except WebSocketError as e:
+        print(f"WebSocket error: {e.message}")
+        # Attempt reconnection
+```
+
+---
+
+## Error Handling Best Practices
+
+### Catch Specific Exceptions
+
+```python
+from turbine_client.exceptions import (
+    TurbineApiError,
+    OrderValidationError,
+    AuthenticationError,
+)
+
+try:
+    order = client.create_limit_buy(...)
+    result = client.post_order(order)
+except OrderValidationError as e:
+    # Handle validation errors (fix order parameters)
+    print(f"Invalid order: {e.message}")
+except AuthenticationError as e:
+    # Handle auth errors (re-authenticate)
+    print(f"Auth failed: {e.message}")
+except TurbineApiError as e:
+    # Handle API errors (retry, log, alert)
+    if e.status_code == 429:
+        time.sleep(5)  # Rate limited
+    else:
+        print(f"API error: {e.message}")
+```
+
+### Retry Logic
+
+```python
+import time
+from turbine_client.exceptions import TurbineApiError
+
+def post_order_with_retry(client, order, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return client.post_order(order)
+        except TurbineApiError as e:
+            if e.status_code == 429:  # Rate limited
+                wait_time = 2 ** attempt  # Exponential backoff
+                print(f"Rate limited, waiting {wait_time}s")
+                time.sleep(wait_time)
+            elif e.status_code >= 500:  # Server error
+                print(f"Server error, retrying ({attempt + 1}/{max_retries})")
+                time.sleep(1)
+            else:
+                raise  # Don't retry client errors (4xx)
+    raise TurbineApiError("Max retries exceeded")
+```
+
+### Logging Errors
+
+```python
+import logging
+from turbine_client.exceptions import TurbineError
+
+logger = logging.getLogger(__name__)
+
+try:
+    result = client.post_order(order)
+except TurbineError as e:
+    logger.error(f"Turbine error: {e.message}", exc_info=True)
+    # Continue gracefully or abort
+```

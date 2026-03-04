@@ -1,0 +1,349 @@
+---
+title: "Market Data Methods"
+description: "Fetch market information, orderbooks, trades, and statistics"
+---
+
+Market data methods provide read-only access to markets, orderbooks, trades, and statistics. These methods do not require authentication.
+
+## get_markets
+
+Get all markets, optionally filtered by chain.
+
+<ParamField path="chain_id" type="int | None">
+  Optional chain ID to filter markets (e.g., 137 for Polygon).
+</ParamField>
+
+**Returns:** `list[Market]` - List of all markets
+
+**Requires:** No authentication
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137
+)
+
+# Get all markets
+markets = client.get_markets()
+print(f"Found {len(markets)} total markets")
+
+# Filter by chain
+polygon_markets = client.get_markets(chain_id=137)
+print(f"Found {len(polygon_markets)} Polygon markets")
+
+for market in polygon_markets[:5]:
+    print(f"Market: {market.question}")
+    print(f"  ID: {market.id}")
+    print(f"  Expiration: {market.expiration}")
+    print(f"  Resolved: {market.resolved}")
+```
+
+---
+
+## get_market
+
+Get detailed statistics for a specific market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID.
+</ParamField>
+
+**Returns:** `MarketStats` - Market statistics including prices and volume
+
+**Requires:** No authentication
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137
+)
+
+# Get the current BTC market
+quick_market = client.get_quick_market("BTC")
+
+# Get detailed stats
+stats = client.get_market(quick_market.market_id)
+print(f"Market ID: {stats.market_id}")
+print(f"Last price: {stats.last_price / 10_000:.2f}%")
+print(f"Total volume: ${stats.total_volume / 1_000_000:.2f}")
+print(f"24h volume: ${stats.volume_24h / 1_000_000:.2f}")
+```
+
+---
+
+## get_orderbook
+
+Get the current orderbook for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID.
+</ParamField>
+
+<ParamField path="outcome" type="Outcome | None">
+  Optional outcome filter: `Outcome.YES` or `Outcome.NO`. If not provided, returns orders for both outcomes.
+</ParamField>
+
+**Returns:** `OrderBookSnapshot` - Orderbook with bids and asks
+
+**Requires:** No authentication
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient, Outcome
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137
+)
+
+# Get the current BTC market
+quick_market = client.get_quick_market("BTC")
+
+# Get the full orderbook
+orderbook = client.get_orderbook(quick_market.market_id)
+
+print(f"Bids ({len(orderbook.bids)}):")
+for bid in orderbook.bids[:5]:  # Top 5 bids
+    price_pct = bid.price / 10_000
+    size = bid.size / 1_000_000
+    print(f"  {size:.2f} @ {price_pct:.2f}%")
+
+print(f"\nAsks ({len(orderbook.asks)}):")
+for ask in orderbook.asks[:5]:  # Top 5 asks
+    price_pct = ask.price / 10_000
+    size = ask.size / 1_000_000
+    print(f"  {size:.2f} @ {price_pct:.2f}%")
+
+# Get orderbook for YES outcome only
+yes_orderbook = client.get_orderbook(
+    quick_market.market_id,
+    outcome=Outcome.YES
+)
+print(f"\nYES outcome has {len(yes_orderbook.bids)} bids")
+```
+
+---
+
+## get_trades
+
+Get recent trades for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID.
+</ParamField>
+
+<ParamField path="limit" type="int">
+  Maximum number of trades to return. Default: 100.
+</ParamField>
+
+**Returns:** `list[Trade]` - List of recent trades
+
+**Requires:** No authentication
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137
+)
+
+# Get the current BTC market
+quick_market = client.get_quick_market("BTC")
+
+# Get recent trades
+trades = client.get_trades(quick_market.market_id, limit=10)
+
+print(f"Last {len(trades)} trades:")
+for trade in trades:
+    outcome_label = "YES" if trade.outcome == 0 else "NO"
+    price_pct = trade.price / 10_000
+    size = trade.size / 1_000_000
+    print(f"{outcome_label}: {size:.2f} @ {price_pct:.2f}%")
+    print(f"  Buyer: {trade.buyer[:8]}...")
+    print(f"  Seller: {trade.seller[:8]}...")
+    print(f"  Tx: {trade.tx_hash[:10]}...\n")
+```
+
+---
+
+## get_stats
+
+Get statistics for a market.
+
+<ParamField path="market_id" type="str" required>
+  The market ID.
+</ParamField>
+
+**Returns:** `MarketStats` - Market statistics
+
+**Requires:** No authentication
+
+**Note:** This is an alias for `get_market()` and returns the same data.
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137
+)
+
+quick_market = client.get_quick_market("BTC")
+stats = client.get_stats(quick_market.market_id)
+
+print(f"Market stats:")
+print(f"  Last price: {stats.last_price / 10_000:.2f}%")
+print(f"  Total volume: ${stats.total_volume / 1_000_000:.2f}")
+```
+
+---
+
+## get_quick_market
+
+Get the active Quick Market for an asset (15-minute BTC markets).
+
+<ParamField path="asset" type="str" required>
+  The asset symbol (e.g., "BTC", "ETH").
+</ParamField>
+
+**Returns:** `QuickMarket` - The current active Quick Market
+
+**Requires:** No authentication
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137
+)
+
+# Get the current 15-minute BTC market
+quick_market = client.get_quick_market("BTC")
+
+print(f"Current BTC Quick Market:")
+print(f"  Market ID: {quick_market.market_id}")
+print(f"  Strike price: ${quick_market.start_price / 1_000_000:.2f}")
+print(f"  Expiration: {quick_market.expiration}")
+print(f"  Question: {quick_market.question}")
+
+# Calculate time remaining
+import time
+time_left = quick_market.expiration - int(time.time())
+print(f"  Time remaining: {time_left // 60} minutes")
+```
+
+---
+
+## Related Types
+
+### Market
+
+```python
+@dataclass
+class Market:
+    id: str  # Market ID (hex string)
+    chain_id: int
+    contract_address: str  # ERC1155 contract for outcome tokens
+    settlement_address: str  # Settlement contract
+    question: str
+    description: str
+    category: str
+    expiration: int  # Unix timestamp
+    maker: str  # Market creator address
+    resolved: bool
+    winning_outcome: int | None  # 0 = YES, 1 = NO (if resolved)
+    volume: int  # Total volume with 6 decimals
+    created_at: int
+    updated_at: int
+```
+
+### MarketStats
+
+```python
+@dataclass
+class MarketStats:
+    market_id: str
+    contract_address: str
+    last_price: int  # Scaled by 1e6
+    total_volume: int  # With 6 decimals
+    volume_24h: int  # With 6 decimals
+```
+
+### OrderBookSnapshot
+
+```python
+@dataclass
+class OrderBookSnapshot:
+    market_id: str
+    bids: list[PriceLevel]  # Buy orders, sorted by price descending
+    asks: list[PriceLevel]  # Sell orders, sorted by price ascending
+    last_update: int  # Unix timestamp
+```
+
+### PriceLevel
+
+```python
+@dataclass
+class PriceLevel:
+    price: int  # Scaled by 1e6
+    size: int  # With 6 decimals
+```
+
+### Trade
+
+```python
+@dataclass
+class Trade:
+    id: int
+    market_id: str
+    buyer: str  # Buyer address
+    seller: str  # Seller address
+    price: int  # Scaled by 1e6
+    size: int  # With 6 decimals
+    outcome: int  # 0 = YES, 1 = NO
+    timestamp: int  # Unix timestamp
+    tx_hash: str  # Transaction hash
+```
+
+### QuickMarket
+
+```python
+@dataclass
+class QuickMarket:
+    market_id: str
+    asset: str  # "BTC", "ETH", etc.
+    contract_address: str
+    settlement_address: str
+    start_price: int  # Strike price scaled by 1e6
+    expiration: int  # Unix timestamp
+    question: str
+    resolved: bool
+    winning_outcome: int | None
+```
+
+---
+
+## Notes
+
+- **No authentication required:** All market data methods are public and do not require API credentials or a private key.
+- **Price scaling:** All prices are scaled by 1e6. Divide by 10,000 to get percentage (e.g., 500,000 → 50%).
+- **Size scaling:** All sizes use 6 decimals. Divide by 1,000,000 to get shares (e.g., 2,500,000 → 2.5 shares).
+- **Quick Markets:** Currently, only BTC 15-minute Quick Markets are active on Turbine. New markets open every 15 minutes.
+- **Strike price:** In Quick Markets, `start_price` is the BTC price threshold. Divide by 1,000,000 to get USD price.

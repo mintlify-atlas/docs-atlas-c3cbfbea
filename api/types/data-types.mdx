@@ -1,0 +1,568 @@
+---
+title: "Data Types"
+description: "Order books, trades, positions, and user data types"
+---
+
+## OrderBookSnapshot
+
+A snapshot of the order book for a market.
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="bids" type="list[PriceLevel]">
+  List of buy orders (sorted by price descending)
+</ResponseField>
+
+<ResponseField name="asks" type="list[PriceLevel]">
+  List of sell orders (sorted by price ascending)
+</ResponseField>
+
+<ResponseField name="last_update" type="int">
+  Unix timestamp of last orderbook update
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates an `OrderBookSnapshot` instance from an API response dictionary.
+
+### Example
+
+```python
+orderbook = client.get_orderbook(market_id="0xabc...")
+
+print(f"Market: {orderbook.market_id}")
+print(f"Last Update: {orderbook.last_update}")
+print("\nBids (Buy Orders):")
+for level in orderbook.bids[:5]:  # Top 5
+    print(f"  Price: {level.price / 1e6:.2%}, Size: {level.size / 1e6:.2f}")
+
+print("\nAsks (Sell Orders):")
+for level in orderbook.asks[:5]:  # Top 5
+    print(f"  Price: {level.price / 1e6:.2%}, Size: {level.size / 1e6:.2f}")
+
+# Calculate spread
+if orderbook.bids and orderbook.asks:
+    best_bid = orderbook.bids[0].price / 1e6
+    best_ask = orderbook.asks[0].price / 1e6
+    spread = (best_ask - best_bid) * 100
+    print(f"\nSpread: {spread:.2f}%")
+```
+
+---
+
+## PriceLevel
+
+A single price level in the orderbook.
+
+<ResponseField name="price" type="int">
+  Price scaled by 1e6 (divide by 1,000,000 to get percentage)
+</ResponseField>
+
+<ResponseField name="size" type="int">
+  Total size available at this price (6 decimals)
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `PriceLevel` instance from an API response dictionary.
+
+### Example
+
+```python
+level = PriceLevel(price=650_000, size=10_000_000)
+
+print(f"Price: {level.price / 1e6:.2%}")  # 65.00%
+print(f"Size: {level.size / 1e6:.2f} shares")  # 10.00 shares
+```
+
+---
+
+## Trade
+
+A trade execution.
+
+<ResponseField name="id" type="int">
+  Unique trade ID
+</ResponseField>
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="buyer" type="str">
+  Buyer's wallet address
+</ResponseField>
+
+<ResponseField name="seller" type="str">
+  Seller's wallet address
+</ResponseField>
+
+<ResponseField name="price" type="int">
+  Execution price (scaled by 1e6)
+</ResponseField>
+
+<ResponseField name="size" type="int">
+  Trade size (6 decimals)
+</ResponseField>
+
+<ResponseField name="outcome" type="int">
+  Outcome traded (0 = YES, 1 = NO)
+</ResponseField>
+
+<ResponseField name="timestamp" type="int">
+  Trade execution timestamp
+</ResponseField>
+
+<ResponseField name="tx_hash" type="str">
+  Transaction hash
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `Trade` instance from an API response dictionary.
+
+### Example
+
+```python
+trades = client.get_trades(market_id="0xabc...", limit=10)
+
+for trade in trades:
+    outcome = "YES" if trade.outcome == 0 else "NO"
+    print(f"Trade {trade.id}:")
+    print(f"  {outcome} @ {trade.price / 1e6:.2%}")
+    print(f"  Size: {trade.size / 1e6:.2f} shares")
+    print(f"  Value: ${(trade.price * trade.size) / 1e12:.2f}")
+    print(f"  Tx: {trade.tx_hash[:10]}...")
+```
+
+---
+
+## Position
+
+A user's position in a market.
+
+<ResponseField name="id" type="int">
+  Position ID
+</ResponseField>
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="user_address" type="str">
+  User's wallet address
+</ResponseField>
+
+<ResponseField name="yes_shares" type="int">
+  Number of YES shares held (6 decimals)
+</ResponseField>
+
+<ResponseField name="no_shares" type="int">
+  Number of NO shares held (6 decimals)
+</ResponseField>
+
+<ResponseField name="yes_cost" type="int">
+  Total cost of YES shares (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="no_cost" type="int">
+  Total cost of NO shares (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="yes_revenue" type="int">
+  Revenue from selling YES shares (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="no_revenue" type="int">
+  Revenue from selling NO shares (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="total_invested" type="int">
+  Total USDC invested in this position (6 decimals)
+</ResponseField>
+
+<ResponseField name="total_cost" type="int">
+  Net cost after accounting for revenue (6 decimals)
+</ResponseField>
+
+<ResponseField name="total_revenue" type="int">
+  Total revenue from this position (6 decimals)
+</ResponseField>
+
+<ResponseField name="last_updated" type="int">
+  Last update timestamp
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `Position` instance from an API response dictionary.
+
+### Example
+
+```python
+positions = client.get_user_positions(user_address="0xabc...")
+
+for pos in positions:
+    print(f"Market: {pos.market_id[:10]}...")
+    print(f"  YES: {pos.yes_shares / 1e6:.2f} shares (cost: ${pos.yes_cost / 1e6:.2f})")
+    print(f"  NO: {pos.no_shares / 1e6:.2f} shares (cost: ${pos.no_cost / 1e6:.2f})")
+    print(f"  Net Cost: ${pos.total_cost / 1e6:.2f}")
+    print(f"  Revenue: ${pos.total_revenue / 1e6:.2f}")
+```
+
+---
+
+## Holder
+
+A top holder in a market.
+
+<ResponseField name="user_address" type="str">
+  User's wallet address
+</ResponseField>
+
+<ResponseField name="yes_shares" type="int">
+  Number of YES shares held (6 decimals)
+</ResponseField>
+
+<ResponseField name="no_shares" type="int">
+  Number of NO shares held (6 decimals)
+</ResponseField>
+
+<ResponseField name="total_invested" type="int">
+  Total USDC invested (6 decimals)
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `Holder` instance from an API response dictionary.
+
+---
+
+## ClaimablePosition
+
+A resolved market where the user has winning tokens to claim.
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="contract_address" type="str">
+  Market contract address
+</ResponseField>
+
+<ResponseField name="outcome_label" type="str">
+  Winning outcome label ("YES" or "NO")
+</ResponseField>
+
+<ResponseField name="balance" type="int">
+  Raw token balance (6 decimals)
+</ResponseField>
+
+<ResponseField name="payout" type="str">
+  Human-readable payout (e.g., "10.50")
+</ResponseField>
+
+### Properties
+
+#### `payout_float`
+
+Returns the payout as a float (balance / 1,000,000).
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `ClaimablePosition` instance from an API response dictionary.
+
+### Example
+
+```python
+claimable = client.get_claim_data(user_address="0xabc...")
+
+for claim in claimable:
+    print(f"Market: {claim.market_id[:10]}...")
+    print(f"  Outcome: {claim.outcome_label}")
+    print(f"  Payout: ${claim.payout_float:.2f}")
+    print(f"  Contract: {claim.contract_address}")
+
+# Claim all at once
+if claimable:
+    contracts = [c.contract_address for c in claimable]
+    result = client.batch_claim_winnings(contracts)
+    print(f"Claimed from {len(contracts)} markets")
+```
+
+---
+
+## UserActivity
+
+User trading activity summary.
+
+<ResponseField name="address" type="str">
+  User's wallet address
+</ResponseField>
+
+<ResponseField name="total_trades" type="int">
+  Total number of trades
+</ResponseField>
+
+<ResponseField name="total_volume" type="int">
+  Total trading volume (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="pnl" type="int">
+  Profit and loss (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="markets_traded" type="int">
+  Number of unique markets traded
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `UserActivity` instance from an API response dictionary.
+
+---
+
+## UserStats
+
+Detailed user statistics.
+
+<ResponseField name="user_address" type="str">
+  User's wallet address
+</ResponseField>
+
+<ResponseField name="total_cost" type="int">
+  Total USDC spent on positions (6 decimals)
+</ResponseField>
+
+<ResponseField name="total_invested" type="int">
+  Total USDC invested in positions (6 decimals)
+</ResponseField>
+
+<ResponseField name="position_value" type="int">
+  Current value of all positions (6 decimals)
+</ResponseField>
+
+<ResponseField name="pnl" type="int">
+  Profit/Loss (6 decimals)
+</ResponseField>
+
+<ResponseField name="pnl_percentage" type="float">
+  PnL as percentage
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `UserStats` instance from an API response dictionary.
+
+### Example
+
+```python
+stats = client.get_user_stats(user_address="0xabc...")
+
+print(f"Total Invested: ${stats.total_invested / 1e6:,.2f}")
+print(f"Position Value: ${stats.position_value / 1e6:,.2f}")
+print(f"PnL: ${stats.pnl / 1e6:,.2f} ({stats.pnl_percentage:.2f}%)")
+```
+
+---
+
+## PendingTrade
+
+A trade that is pending on-chain confirmation.
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="tx_hash" type="str">
+  Transaction hash
+</ResponseField>
+
+<ResponseField name="buyer_address" type="str">
+  Buyer's wallet address
+</ResponseField>
+
+<ResponseField name="seller_address" type="str">
+  Seller's wallet address
+</ResponseField>
+
+<ResponseField name="fill_size" type="int">
+  Trade size (6 decimals)
+</ResponseField>
+
+<ResponseField name="fill_price" type="int">
+  Execution price (scaled by 1e6)
+</ResponseField>
+
+<ResponseField name="timestamp" type="str">
+  Submission timestamp
+</ResponseField>
+
+<ResponseField name="is_batch" type="bool">
+  Whether this is part of a batch
+</ResponseField>
+
+<ResponseField name="batch_index" type="int">
+  Index within the batch (if applicable)
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `PendingTrade` instance from an API response dictionary.
+
+---
+
+## FailedTrade
+
+A trade that failed on-chain.
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="tx_hash" type="str">
+  Transaction hash
+</ResponseField>
+
+<ResponseField name="buyer_address" type="str">
+  Buyer's wallet address
+</ResponseField>
+
+<ResponseField name="seller_address" type="str">
+  Seller's wallet address
+</ResponseField>
+
+<ResponseField name="fill_size" type="int">
+  Attempted trade size (6 decimals)
+</ResponseField>
+
+<ResponseField name="fill_price" type="int">
+  Attempted execution price (scaled by 1e6)
+</ResponseField>
+
+<ResponseField name="reason" type="str">
+  Reason for failure
+</ResponseField>
+
+<ResponseField name="timestamp" type="str">
+  Submission timestamp
+</ResponseField>
+
+<ResponseField name="batch_index" type="int">
+  Index within the batch (if applicable)
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `FailedTrade` instance from an API response dictionary.
+
+---
+
+## SettlementStatus
+
+Settlement status for a transaction.
+
+<ResponseField name="found" type="bool">
+  Whether the transaction was found
+</ResponseField>
+
+<ResponseField name="tx_hash" type="str">
+  Transaction hash
+</ResponseField>
+
+<ResponseField name="status" type="str">
+  Status (e.g., "pending", "confirmed", "failed")
+</ResponseField>
+
+<ResponseField name="error" type="str">
+  Error message if failed
+</ResponseField>
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="buyer_address" type="str">
+  Buyer's wallet address
+</ResponseField>
+
+<ResponseField name="seller_address" type="str">
+  Seller's wallet address
+</ResponseField>
+
+<ResponseField name="fill_size" type="int">
+  Trade size (6 decimals)
+</ResponseField>
+
+<ResponseField name="fill_price" type="int">
+  Execution price (scaled by 1e6)
+</ResponseField>
+
+<ResponseField name="timestamp" type="str">
+  Timestamp
+</ResponseField>
+
+<ResponseField name="is_batch" type="bool">
+  Whether this is part of a batch
+</ResponseField>
+
+<ResponseField name="batch_index" type="int">
+  Index within the batch (if applicable)
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates a `SettlementStatus` instance from an API response dictionary.
+
+---
+
+## AssetPrice
+
+Current price for an asset.
+
+<ResponseField name="price" type="float">
+  Asset price in USD
+</ResponseField>
+
+<ResponseField name="timestamp" type="int">
+  Price timestamp
+</ResponseField>
+
+### Methods
+
+#### `from_dict(data)`
+
+Creates an `AssetPrice` instance from an API response dictionary.
+
+### Example
+
+```python
+btc_price = client.get_asset_price("BTC")
+
+print(f"BTC: ${btc_price.price:,.2f}")
+print(f"Updated: {btc_price.timestamp}")
+```

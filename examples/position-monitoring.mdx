@@ -1,0 +1,472 @@
+---
+title: "Position Monitoring"
+description: "Track positions and calculate P&L across all markets"
+---
+
+The **Position Monitoring** script shows how to fetch and display all positions for a wallet, calculate P&L, and summarize portfolio performance.
+
+[View source on GitHub →](https://github.com/ojo-network/turbine-py-client/blob/main/examples/position_monitoring.py)
+
+## What It Does
+
+This script:
+
+1. **Fetches all positions** for a wallet address
+2. **Calculates current value** based on latest market prices
+3. **Computes P&L** (realized + unrealized)
+4. **Displays portfolio summary** with total invested, current value, and percentage return
+5. **Shows user activity** (total trades, volume, markets traded)
+
+## Quick Start
+
+### Setup Environment
+
+```bash .env
+TURBINE_API_KEY_ID=your_key_id
+TURBINE_API_PRIVATE_KEY=your_private_key
+TURBINE_WALLET_ADDRESS=0x...  # Address to monitor
+```
+
+<Info>
+  You don't need the wallet's private key to monitor positions — only API credentials and the public address.
+</Info>
+
+### Run the Script
+
+```bash
+python examples/position_monitoring.py
+```
+
+### Example Output
+
+```
+Monitoring positions for: 0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0
+============================================================
+
+Will BTC be above $97,250 at 3:15 PM?
+--------------------------------------------------
+  YES shares: 5.00
+  NO shares:  0.00
+  Invested:   $2.50
+  Current:    $3.20
+  P&L:        +$0.70 (+28.0%)
+  Last price: 64.0%
+
+Will BTC be above $96,800 at 3:00 PM?
+--------------------------------------------------
+  YES shares: 0.00
+  NO shares:  3.00
+  Invested:   $1.20
+  Current:    $0.90
+  P&L:        -$0.30 (-25.0%)
+  Last price: 70.0%
+  RESOLVED:   YES won!
+
+============================================================
+PORTFOLIO SUMMARY
+============================================================
+Total invested:  $3.70
+Current value:   $4.10
+Total P&L:       +$0.40 (+10.8%)
+Positions:       2
+
+Total trades:    8
+Total volume:    $15.40
+Markets traded:  4
+```
+
+## Code Walkthrough
+
+### 1. Create Read-Only Client
+
+Position monitoring doesn't require the wallet's private key:
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,  # Polygon mainnet
+    api_key_id=api_key_id,
+    api_private_key=api_private_key,
+    # No private_key needed for read-only
+)
+```
+
+### 2. Fetch All Positions
+
+```python
+positions = client.get_user_positions(wallet_address)
+
+for pos in positions:
+    print(f"Market: {pos.market_id}")
+    print(f"YES shares: {pos.yes_shares / 1_000_000:.2f}")
+    print(f"NO shares: {pos.no_shares / 1_000_000:.2f}")
+    print(f"Invested: ${pos.invested / 1_000_000:.2f}")
+```
+
+**Key fields:**
+
+- `market_id`: Which market the position is in
+- `yes_shares`: Number of YES shares (in 6 decimals)
+- `no_shares`: Number of NO shares (in 6 decimals)
+- `invested`: Total USDC spent on this position (in 6 decimals)
+
+### 3. Calculate Current Value
+
+To compute P&L, you need the current market price:
+
+```python
+# Get latest market stats
+stats = client.get_stats(pos.market_id)
+yes_price = stats.last_price  # Last trade price
+no_price = 1_000_000 - yes_price  # NO = 100% - YES
+
+# Value of each outcome
+yes_value = (pos.yes_shares * yes_price) // 1_000_000
+no_value = (pos.no_shares * no_price) // 1_000_000
+current_value = yes_value + no_value
+
+# P&L
+pnl = current_value - pos.invested
+pnl_pct = (pnl / pos.invested * 100) if pos.invested > 0 else 0
+```
+
+**Why `last_price` and not `mid_price`?**
+
+`last_price` is the most recent trade price — it represents the current market clearing price. The mid-price (average of best bid and ask) is an estimate, but `last_price` is what the market actually traded at.
+
+### 4. Check for Resolved Markets
+
+```python
+market = client.get_market(pos.market_id)
+
+if market.resolved:
+    outcome = "YES" if market.winning_outcome == 0 else "NO"
+    print(f"RESOLVED: {outcome} won!")
+```
+
+Resolved positions should be claimed to get the USDC back.
+
+### 5. Get User Activity
+
+```python
+activity = client.get_user_activity(wallet_address)
+print(f"Total trades:    {activity.total_trades}")
+print(f"Total volume:    ${activity.total_volume / 1_000_000:.2f}")
+print(f"Markets traded:  {activity.markets_traded}")
+```
+
+## Understanding P&L
+
+### Unrealized P&L
+
+P&L on open positions (markets that haven't resolved yet).
+
+**Example:**
+- Bought 10 YES shares at 40% ($4.00 spent)
+- Current YES price: 60%
+- Current value: 10 shares × 60% = $6.00
+- **Unrealized P&L: +$2.00 (+50%)**
+
+You haven't won yet — the market could still reverse. But if you sold now at 60%, you'd lock in +$2.00.
+
+### Realized P&L
+
+P&L on closed positions (markets that resolved).
+
+**Example:**
+- Bought 10 YES shares at 40% ($4.00 spent)
+- Market resolved: YES won
+- Payout: 10 shares × $1.00 = $10.00
+- **Realized P&L: +$6.00 (+150%)**
+
+This is locked in — once the market resolves and you claim, you get the full payout.
+
+### Portfolio P&L
+
+Sum of all positions:
+
+```python
+total_invested = sum(pos.invested for pos in positions)
+total_current_value = sum(calculate_value(pos) for pos in positions)
+total_pnl = total_current_value - total_invested
+total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
+```
+
+**Important:** This includes both realized and unrealized P&L. To see only realized, filter for `market.resolved`.
+
+## Advanced: Position Breakdown
+
+### Per-Market P&L
+
+Group positions by market:
+
+```python
+from collections import defaultdict
+
+by_market = defaultdict(list)
+for pos in positions:
+    by_market[pos.market_id].append(pos)
+
+for market_id, positions in by_market.items():
+    market = client.get_market(market_id)
+    print(f"\n{market.question}")
+    
+    for pos in positions:
+        # Calculate P&L for this position
+        ...
+```
+
+### Per-Outcome Analysis
+
+How much is in YES vs NO?
+
+```python
+total_yes_value = 0
+total_no_value = 0
+
+for pos in positions:
+    stats = client.get_stats(pos.market_id)
+    yes_price = stats.last_price
+    no_price = 1_000_000 - yes_price
+    
+    total_yes_value += (pos.yes_shares * yes_price) // 1_000_000
+    total_no_value += (pos.no_shares * no_price) // 1_000_000
+
+print(f"YES exposure: ${total_yes_value / 1_000_000:.2f}")
+print(f"NO exposure:  ${total_no_value / 1_000_000:.2f}")
+```
+
+Useful for understanding directional bias.
+
+### Time-Weighted Returns
+
+To calculate returns accounting for when capital was deployed:
+
+```python
+# Get all trades for the user
+trades = []
+for market_id in traded_markets:
+    market_trades = client.get_trades(market_id, limit=100)
+    my_trades = [t for t in market_trades if t.buyer.lower() == wallet_address.lower()]
+    trades.extend(my_trades)
+
+# Sort by timestamp
+trades.sort(key=lambda t: t.timestamp)
+
+# Calculate TWR (time-weighted return)
+# TODO: Implement TWR calculation
+```
+
+This is more accurate for bots that scale capital over time.
+
+## Integrating with Your Bot
+
+Add position monitoring to your trading bot:
+
+```python
+class MyBot:
+    async def monitor_positions(self):
+        """Background task that logs position summary every 5 minutes."""
+        while self.running:
+            try:
+                positions = self.client.get_user_positions(self.client.address)
+                
+                total_invested = sum(p.invested for p in positions)
+                total_value = sum(self.calculate_value(p) for p in positions)
+                pnl = total_value - total_invested
+                
+                print(f"\n=== PORTFOLIO ===")
+                print(f"Invested: ${total_invested / 1_000_000:.2f}")
+                print(f"Value:    ${total_value / 1_000_000:.2f}")
+                print(f"P&L:      ${pnl / 1_000_000:.2f} ({pnl/total_invested*100:+.1f}%)")
+                print(f"Positions: {len(positions)}")
+            except Exception as e:
+                print(f"Position monitoring error: {e}")
+            
+            await asyncio.sleep(300)  # Every 5 minutes
+```
+
+Start it as a background task:
+
+```python
+async def run(self):
+    monitor_task = asyncio.create_task(self.monitor_positions())
+    trade_task = asyncio.create_task(self.trading_loop())
+    await asyncio.gather(monitor_task, trade_task)
+```
+
+## Helper Functions
+
+### Format USDC
+
+```python
+def format_usdc(amount: int) -> str:
+    """Format USDC (6 decimals) as USD string."""
+    return f"${amount / 1_000_000:.2f}"
+```
+
+### Format Price
+
+```python
+def format_price(price: int) -> str:
+    """Format price (6 decimals) as percentage."""
+    return f"{price / 10000:.1f}%"
+```
+
+### Calculate Position Value
+
+```python
+def calculate_position_value(pos, stats) -> int:
+    """Calculate current value of a position in USDC (6 decimals)."""
+    yes_price = stats.last_price
+    no_price = 1_000_000 - yes_price
+    
+    yes_value = (pos.yes_shares * yes_price) // 1_000_000
+    no_value = (pos.no_shares * no_price) // 1_000_000
+    
+    return yes_value + no_value
+```
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Check if bot is profitable">
+    Run the script and check total P&L:
+    
+    ```bash
+    python examples/position_monitoring.py
+    ```
+    
+    Look at the **Total P&L** line. Positive = winning, negative = losing.
+  </Accordion>
+  
+  <Accordion title="Find markets to claim from">
+    Filter for resolved positions:
+    
+    ```python
+    for pos in positions:
+        market = client.get_market(pos.market_id)
+        if market.resolved:
+            print(f"Claimable: {market.contract_address}")
+    ```
+    
+    Then use `claim_winnings.py` to claim:
+    
+    ```bash
+    python examples/claim_winnings.py 0x... (contract address)
+    ```
+  </Accordion>
+  
+  <Accordion title="Track bot performance over time">
+    Log P&L to a file:
+    
+    ```python
+    import json
+    from datetime import datetime
+    
+    snapshot = {
+        "timestamp": datetime.now().isoformat(),
+        "invested": total_invested,
+        "value": total_value,
+        "pnl": total_pnl,
+        "pnl_pct": total_pnl_pct,
+    }
+    
+    with open("performance.jsonl", "a") as f:
+        f.write(json.dumps(snapshot) + "\n")
+    ```
+    
+    Run this every hour to build a time series.
+  </Accordion>
+  
+  <Accordion title="Compare multiple wallets">
+    Run the script for each wallet:
+    
+    ```bash
+    TURBINE_WALLET_ADDRESS=0x... python examples/position_monitoring.py > wallet1.txt
+    TURBINE_WALLET_ADDRESS=0x... python examples/position_monitoring.py > wallet2.txt
+    ```
+    
+    Then compare P&L across wallets.
+  </Accordion>
+</AccordionGroup>
+
+## Limitations
+
+<Warning>
+  **Last price may be stale.** If a market hasn't traded recently, `last_price` may not reflect current fair value. In low-liquidity markets, use the mid-price (average of best bid and ask) instead.
+</Warning>
+
+```python
+orderbook = client.get_orderbook(pos.market_id, outcome=Outcome.YES)
+if orderbook.bids and orderbook.asks:
+    mid_price = (orderbook.bids[0].price + orderbook.asks[0].price) // 2
+    yes_price = mid_price  # Use mid instead of last
+```
+
+<Info>
+  **P&L doesn't account for pending orders.** If you have open orders on the book, their value isn't included. Only filled positions are counted.
+</Info>
+
+## API Reference
+
+### `get_user_positions(address: str) -> list[Position]`
+
+Fetch all positions for a wallet.
+
+**Returns:**
+```python
+class Position:
+    market_id: str
+    yes_shares: int  # 6 decimals
+    no_shares: int   # 6 decimals
+    invested: int    # USDC spent (6 decimals)
+```
+
+### `get_user_activity(address: str) -> UserActivity`
+
+Fetch aggregate activity stats.
+
+**Returns:**
+```python
+class UserActivity:
+    total_trades: int
+    total_volume: int  # USDC volume (6 decimals)
+    markets_traded: int
+```
+
+### `get_stats(market_id: str) -> MarketStats`
+
+Fetch market statistics including last trade price.
+
+**Returns:**
+```python
+class MarketStats:
+    last_price: int     # Last trade price (6 decimals)
+    volume_24h: int     # 24h volume (6 decimals)
+    trade_count: int    # Total trades
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Claim Winnings" icon="coins">
+    Claim resolved positions to get USDC back.
+    
+    [View source](https://github.com/ojo-network/turbine-py-client/blob/main/examples/claim_winnings.py)
+  </Card>
+  
+  <Card title="Price Action Bot" icon="chart-line" href="/examples/price-action-bot">
+    See how the reference bot tracks positions in real-time.
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/client">
+    Explore all position-related SDK methods.
+  </Card>
+  
+  <Card title="Market Maker Bot" icon="arrows-left-right" href="/examples/market-maker">
+    Study how the MM uses inventory tracking for risk management.
+  </Card>
+</CardGroup>

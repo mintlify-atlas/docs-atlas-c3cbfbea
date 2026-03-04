@@ -1,0 +1,346 @@
+---
+title: "Order Types"
+description: "Data types for creating and managing orders"
+---
+
+## OrderArgs
+
+Arguments for creating a new order. This is the input type you use when building an order.
+
+<ResponseField name="market_id" type="str" required>
+  Unique identifier for the market (hex string)
+</ResponseField>
+
+<ResponseField name="side" type="Side" required>
+  Order side: `Side.BUY` (0) or `Side.SELL` (1)
+</ResponseField>
+
+<ResponseField name="outcome" type="Outcome" required>
+  Market outcome: `Outcome.YES` (0) or `Outcome.NO` (1)
+</ResponseField>
+
+<ResponseField name="price" type="int" required>
+  Price scaled by 1e6 (0 to 1,000,000). For example, 500,000 = 50% = $0.50
+  
+  Valid range: 1 to 999,999
+</ResponseField>
+
+<ResponseField name="size" type="int" required>
+  Order size in 6 decimals. For example, 1,000,000 = 1 share
+  
+  Must be positive. For taker orders (orders that fill immediately), size × price must be ≥ $1 USDC.
+</ResponseField>
+
+<ResponseField name="expiration" type="int" required>
+  Unix timestamp when the order expires
+  
+  Must be positive and in the future.
+</ResponseField>
+
+<ResponseField name="nonce" type="int" default="0">
+  Order nonce for replay protection. Auto-generated if 0.
+</ResponseField>
+
+<ResponseField name="maker_fee_recipient" type="str" default="0x0000000000000000000000000000000000000000">
+  Address to receive maker fees (typically left as zero address)
+</ResponseField>
+
+### Example
+
+```python
+from turbine_client import OrderArgs, Side, Outcome
+import time
+
+order_args = OrderArgs(
+    market_id="0xabc123...",
+    side=Side.BUY,
+    outcome=Outcome.YES,
+    price=600_000,  # 60% = $0.60
+    size=5_000_000,  # 5 shares
+    expiration=int(time.time()) + 3600,  # 1 hour from now
+    nonce=0  # Auto-generated
+)
+```
+
+### Validation
+
+The dataclass performs automatic validation in `__post_init__`:
+
+- **price**: Must be between 1 and 999,999
+- **size**: Must be positive
+- **expiration**: Must be positive
+
+These checks raise `ValueError` if validation fails.
+
+---
+
+## SignedOrder
+
+A signed order ready for submission to the API. This is returned by `TurbineClient.create_limit_buy()` and `create_limit_sell()`.
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="trader" type="str">
+  Trader's wallet address
+</ResponseField>
+
+<ResponseField name="side" type="int">
+  Order side (0 = BUY, 1 = SELL)
+</ResponseField>
+
+<ResponseField name="outcome" type="int">
+  Outcome (0 = YES, 1 = NO)
+</ResponseField>
+
+<ResponseField name="price" type="int">
+  Price scaled by 1e6
+</ResponseField>
+
+<ResponseField name="size" type="int">
+  Size in 6 decimals
+</ResponseField>
+
+<ResponseField name="nonce" type="int">
+  Order nonce
+</ResponseField>
+
+<ResponseField name="expiration" type="int">
+  Expiration timestamp
+</ResponseField>
+
+<ResponseField name="maker_fee_recipient" type="str">
+  Fee recipient address
+</ResponseField>
+
+<ResponseField name="signature" type="str">
+  EIP-712 signature (hex string)
+</ResponseField>
+
+<ResponseField name="order_hash" type="str">
+  Unique hash identifying this order
+</ResponseField>
+
+<ResponseField name="permit_signature" type="PermitSignature | None">
+  Optional gasless USDC approval signature
+</ResponseField>
+
+### Methods
+
+#### `to_dict()`
+
+Converts the signed order to a dictionary for API submission.
+
+```python
+signed_order = client.create_limit_buy(
+    market_id="0xabc...",
+    outcome=Outcome.YES,
+    price=600_000,
+    size=1_000_000
+)
+
+# Submit to API
+result = client.post_order(signed_order)
+```
+
+### JSON Format
+
+```json
+{
+  "order": {
+    "marketId": "0xabc123...",
+    "trader": "0xdef456...",
+    "side": 0,
+    "outcome": 0,
+    "price": 600000,
+    "size": 1000000,
+    "nonce": 1,
+    "expiration": 1704067200,
+    "makerFeeRecipient": "0x0000000000000000000000000000000000000000"
+  },
+  "signature": "0x123abc..."
+}
+```
+
+---
+
+## Side
+
+Enum for order side.
+
+```python
+class Side(IntEnum):
+    BUY = 0
+    SELL = 1
+```
+
+### Usage
+
+```python
+from turbine_client import Side
+
+# Creating orders
+if should_buy:
+    side = Side.BUY
+else:
+    side = Side.SELL
+
+# Comparing
+if order.side == Side.BUY:
+    print("This is a buy order")
+```
+
+---
+
+## Outcome
+
+Enum for market outcomes.
+
+```python
+class Outcome(IntEnum):
+    YES = 0
+    NO = 1
+```
+
+### Usage
+
+```python
+from turbine_client import Outcome
+
+# Creating orders
+if btc_price > strike_price:
+    outcome = Outcome.YES
+else:
+    outcome = Outcome.NO
+
+# Checking market resolution
+if market.winning_outcome == Outcome.YES:
+    print("YES won")
+```
+
+---
+
+## Order
+
+An order on the orderbook (returned by `get_orders()`).
+
+<ResponseField name="order_hash" type="str">
+  Unique hash identifying this order
+</ResponseField>
+
+<ResponseField name="market_id" type="str">
+  Market identifier
+</ResponseField>
+
+<ResponseField name="trader" type="str">
+  Trader's wallet address
+</ResponseField>
+
+<ResponseField name="side" type="int">
+  Order side (0 = BUY, 1 = SELL)
+</ResponseField>
+
+<ResponseField name="outcome" type="int">
+  Outcome (0 = YES, 1 = NO)
+</ResponseField>
+
+<ResponseField name="price" type="int">
+  Price scaled by 1e6
+</ResponseField>
+
+<ResponseField name="size" type="int">
+  Original order size
+</ResponseField>
+
+<ResponseField name="filled_size" type="int">
+  Amount filled so far
+</ResponseField>
+
+<ResponseField name="remaining_size" type="int">
+  Amount remaining to be filled
+</ResponseField>
+
+<ResponseField name="nonce" type="int">
+  Order nonce
+</ResponseField>
+
+<ResponseField name="expiration" type="int">
+  Expiration timestamp
+</ResponseField>
+
+<ResponseField name="status" type="str">
+  Order status (e.g., "OPEN", "FILLED", "CANCELLED")
+</ResponseField>
+
+<ResponseField name="created_at" type="int">
+  Creation timestamp
+</ResponseField>
+
+### Example
+
+```python
+orders = client.get_orders(trader="0xabc...")
+
+for order in orders:
+    print(f"Order {order.order_hash}:")
+    print(f"  Side: {'BUY' if order.side == 0 else 'SELL'}")
+    print(f"  Outcome: {'YES' if order.outcome == 0 else 'NO'}")
+    print(f"  Price: {order.price / 1e6:.2%}")
+    print(f"  Filled: {order.filled_size / 1e6:.2f} / {order.size / 1e6:.2f}")
+    print(f"  Status: {order.status}")
+```
+
+---
+
+## PermitSignature
+
+EIP-2612 permit signature for gasless USDC approval.
+
+<ResponseField name="nonce" type="int">
+  The nonce used when signing (must match on-chain)
+</ResponseField>
+
+<ResponseField name="value" type="int">
+  Amount approved (in USDC with 6 decimals)
+</ResponseField>
+
+<ResponseField name="deadline" type="int">
+  Expiration timestamp for the permit
+</ResponseField>
+
+<ResponseField name="v" type="int">
+  ECDSA signature parameter v
+</ResponseField>
+
+<ResponseField name="r" type="str">
+  ECDSA signature parameter r (hex string with 0x prefix)
+</ResponseField>
+
+<ResponseField name="s" type="str">
+  ECDSA signature parameter s (hex string with 0x prefix)
+</ResponseField>
+
+### Methods
+
+#### `to_dict()`
+
+Converts to dictionary for API submission.
+
+```python
+permit = PermitSignature(
+    nonce=0,
+    value=1000_000_000,  # 1000 USDC
+    deadline=int(time.time()) + 3600,
+    v=27,
+    r="0x123...",
+    s="0x456..."
+)
+
+data = permit.to_dict()
+# Returns: {"nonce": 0, "value": 1000000000, "deadline": ..., "v": 27, "r": "0x123...", "s": "0x456..."}
+```
+
+<Note>
+  You typically don't need to create `PermitSignature` objects directly. The SDK handles this automatically when you call `approve_usdc_for_settlement()`.
+</Note>

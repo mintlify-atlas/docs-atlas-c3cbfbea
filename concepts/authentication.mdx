@@ -1,0 +1,481 @@
+---
+title: "Authentication"
+description: "Understanding EIP-712 signing and API authentication in Turbine"
+---
+
+# Authentication
+
+Turbine uses a **dual authentication system**: EIP-712 signatures for order signing and Ed25519 bearer tokens for API access. This architecture separates trading authorization (proving you own a wallet) from API rate limiting and access control.
+
+## Two-Layer Authentication
+
+The SDK supports three access levels:
+
+| Level | Requirements | Capabilities |
+|-------|--------------|-------------|
+| **Public** | None | Read market data (orderbooks, trades, stats) |
+| **Signing** | Private key | Create and sign orders (not submit) |
+| **Full** | Private key + API credentials | Submit orders, cancel, view positions |
+
+```python
+from turbine_client import TurbineClient
+
+# Level 0: Public access (no auth)
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+)
+markets = client.get_markets()  # ✓ Works
+
+# Level 1: Can sign orders (private key only)
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="0x...",
+)
+order = client.create_limit_buy(...)  # ✓ Signs order
+client.post_order(order)  # ✗ Fails (no API auth)
+
+# Level 2: Full access (private key + API credentials)
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="0x...",
+    api_key_id="your-key-id",
+    api_private_key="0x...",  # Ed25519 private key
+)
+client.post_order(order)  # ✓ Works
+```
+
+## EIP-712 Order Signing
+
+### What is EIP-712?
+
+[EIP-712](https://eips.ethereum.org/EIPS/eip-712) is a standard for signing **structured data** in a human-readable and secure way. Unlike raw message signing, EIP-712 creates typed, domain-separated signatures that prevent replay attacks across different applications.
+
+### Why Turbine Uses EIP-712
+
+Every order on Turbine must be cryptographically signed to prove:
+1. **Authenticity:** The order came from the wallet owner
+2. **Intent:** The exact parameters (price, size, expiration) the trader agreed to
+3. **Non-repudiation:** The trader can't claim they didn't place the order
+
+Orders are signed off-chain (free) and submitted to the API, which verifies the signature before accepting them into the orderbook.
+
+### Order Type Definition
+
+Turbine's order type is defined in the EIP-712 schema:
+
+```solidity
+struct Order {
+    bytes32 marketId;           // Market identifier
+    address trader;             // Wallet placing the order
+    uint8 side;                 // 0 = BUY, 1 = SELL
+    uint8 outcome;              // 0 = YES, 1 = NO
+    uint256 price;              // Price (scaled by 1e6)
+    uint256 size;               // Size (6 decimals)
+    uint256 nonce;              // Unique per order
+    uint256 expiration;         // Unix timestamp
+    address makerFeeRecipient;  // Fee recipient address
+}
+```
+
+### Domain Separator
+
+The domain separator prevents signature reuse across chains or contracts:
+
+```python
+# From turbine_client/signer.py
+domain = {
+    "name": "Turbine",
+    "version": "1",
+    "chainId": 137,  # Polygon mainnet
+    "verifyingContract": "0xdB96C91d9e5930fE3Ed1604603CfA4ece454725c",  # Settlement
+}
+```
+
+Key properties:
+- **Chain-specific:** A signature on Polygon won't work on Avalanche
+- **Contract-specific:** Tied to the settlement contract address
+- **Version-locked:** Prevents issues if the protocol upgrades
+
+### Signing Process
+
+Here's how the SDK signs orders (from `turbine_client/signer.py`):
+
+```python
+from eth_account import Account
+from eth_account.messages import encode_typed_data
+
+class Signer:
+    def sign_order(self, order_args, settlement_address=None):
+        # Build typed data structure
+        typed_data = {
+            "types": {
+                "EIP712Domain": [...],
+                "Order": [...],
+            },
+            "primaryType": "Order",
+            "domain": {
+                "name": "Turbine",
+                "version": "1",
+                "chainId": self._chain_id,
+                "verifyingContract": settlement_address,
+            },
+            "message": {
+                "marketId": bytes.fromhex(order_args.market_id),
+                "trader": self.address,
+                "side": int(order_args.side),
+                "outcome": int(order_args.outcome),
+                "price": order_args.price,
+                "size": order_args.size,
+                "nonce": nonce,
+                "expiration": order_args.expiration,
+                "makerFeeRecipient": order_args.maker_fee_recipient,
+            },
+        }
+        
+        # Sign with private key
+        signed = Account.sign_typed_data(
+            self._account.key,
+            full_message=typed_data,
+        )
+        
+        return SignedOrder(
+            ...,
+            signature=signed.signature.hex(),
+            order_hash=compute_order_hash(typed_data),
+        )
+```
+
+### Order Hash
+
+Every signed order has a unique **order hash** computed from the EIP-712 signature:
+
+```python
+from eth_utils import keccak
+
+def compute_order_hash(typed_data):
+    encoded = encode_typed_data(full_message=typed_data)
+    return f"0x{keccak(encoded.body).hex()}"
+```
+
+The order hash is used to:
+- Track orders in the API
+- Cancel specific orders
+- Match fills to your orders
+
+```python
+order = client.create_limit_buy(...)
+print(f"Order hash: {order.order_hash}")
+# Output: 0x8f3a2c1b4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1
+
+# Later: cancel by hash
+client.cancel_order(order_hash=order.order_hash)
+```
+
+<Warning>
+Never share your wallet private key. The EIP-712 signature proves you control the wallet, so anyone with your private key can place orders on your behalf.
+</Warning>
+
+## Ed25519 Bearer Tokens
+
+### Why Separate API Authentication?
+
+While EIP-712 proves order authenticity, it doesn't handle:
+- **Rate limiting:** Preventing spam or abuse
+- **Access control:** Restricting who can query private data
+- **Key rotation:** Revoking API access without changing wallets
+
+Turbine uses **Ed25519** bearer tokens for API-level authentication, separate from wallet keys.
+
+### Obtaining API Credentials
+
+You only need to do this **once per wallet**:
+
+```python
+from turbine_client import TurbineClient
+
+# Self-service registration
+credentials = TurbineClient.request_api_credentials(
+    host="https://api.turbinefi.com",
+    private_key="0x...",  # Your wallet private key
+)
+
+print(f"API Key ID: {credentials['api_key_id']}")
+print(f"API Private Key: {credentials['api_private_key']}")
+```
+
+This:
+1. Signs a message with your wallet to prove ownership
+2. Generates new Ed25519 credentials linked to your wallet
+3. Returns the credentials (save them — the private key can't be retrieved later)
+
+**Store these in your `.env` file:**
+
+```bash
+TURBINE_API_KEY_ID=user_abc123...
+TURBINE_API_PRIVATE_KEY=0xabcdef1234567890...
+```
+
+### Bearer Token Format
+
+Bearer tokens are short-lived, self-contained authentication tokens:
+
+```
+base64url(payload).base64url(signature)
+```
+
+**Payload:**
+```json
+{
+  "kid": "user_abc123",        // API key ID
+  "ts": 1709654400,            // Timestamp (seconds)
+  "n": "a1b2c3d4e5f6..."       // Random nonce
+}
+```
+
+**Signature:**
+Ed25519 signature of the payload using your API private key.
+
+### Token Generation (Automatic)
+
+The SDK generates fresh tokens automatically for every authenticated request:
+
+```python
+# From turbine_client/auth.py
+class BearerTokenAuth:
+    def generate_token(self):
+        payload = {
+            "kid": self._credentials.key_id,
+            "ts": int(time.time()),
+            "n": secrets.token_hex(16),
+        }
+        
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signed = self._signing_key.sign(payload_bytes)
+        
+        payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode()
+        sig_b64 = base64.urlsafe_b64encode(signed.signature).decode()
+        
+        return f"{payload_b64}.{sig_b64}"
+    
+    def get_auth_header(self):
+        token = self.generate_token()
+        return {"Authorization": f"Bearer {token}"}
+```
+
+Tokens are generated on-demand, so you never have to worry about expiration or refreshing.
+
+### Authenticated Endpoints
+
+Endpoints requiring bearer tokens:
+
+```python
+# Submit orders
+client.post_order(signed_order)           # POST /api/v1/orders
+
+# View your orders
+client.get_orders(trader=address)         # GET /api/v1/orders?trader=...
+
+# Cancel orders  
+client.cancel_order(order_hash)           # DELETE /api/v1/orders/{hash}
+
+# View positions
+client.get_user_positions(address)        # GET /api/v1/users/{addr}/positions
+
+# Gasless approvals
+client.approve_usdc_for_settlement()      # POST /api/v1/relayer/usdc-permit
+
+# Claim winnings
+client.claim_winnings(market_address)     # POST /api/v1/relayer/ctf-redemption
+```
+
+## Wallet Setup
+
+### Generating a Wallet
+
+If you don't have a wallet, generate one programmatically:
+
+```python
+from eth_account import Account
+
+acct = Account.create()
+print(f"Address: {acct.address}")
+print(f"Private Key: {acct.key.hex()}")
+
+# Save to .env
+with open(".env", "a") as f:
+    f.write(f"TURBINE_PRIVATE_KEY={acct.key.hex()}\n")
+```
+
+<Warning>
+**Security best practices:**
+- Never commit `.env` to version control
+- Use environment variables in production (not `.env` files)
+- Consider using a hardware wallet or key management service for large funds
+- For testing/development, use a dedicated wallet with minimal funds
+</Warning>
+
+### Using MetaMask
+
+For users with existing wallets:
+
+1. Install [MetaMask browser extension](https://metamask.io)
+2. Create a new account or select existing
+3. Export private key:
+   - Settings → Security & Privacy → Export Private Key
+   - Enter password
+   - Copy the private key (0x...)
+
+4. Add to `.env`:
+   ```bash
+   TURBINE_PRIVATE_KEY=0xabcdef1234567890...
+   ```
+
+### Funding Your Wallet
+
+You need **USDC on Polygon** to trade:
+
+1. **Bridge from another chain:**
+   - [Polygon Bridge](https://wallet.polygon.technology/bridge)
+   - [Multichain.xyz](https://multichain.xyz)
+
+2. **Withdraw from exchange:**
+   - Coinbase, Binance, Kraken (select Polygon network)
+   - Lower fees than Ethereum mainnet
+
+3. **Verify balance:**
+   ```python
+   balance = client.get_usdc_balance()
+   print(f"Balance: ${balance / 1_000_000:.2f} USDC")
+   ```
+
+<Info>
+Minimum recommended: **$10 USDC**. With default bot sizes ($0.10/trade), this covers 100 trades while learning.
+</Info>
+
+## Security Considerations
+
+### Key Separation
+
+| Key Type | Purpose | Security Level | Rotation |
+|----------|---------|----------------|----------|
+| **Wallet Private Key** | Sign orders | Critical | Never share, hard to rotate |
+| **API Private Key** | Authenticate requests | High | Can revoke and regenerate |
+
+This separation means:
+- Compromised API credentials = attacker can't steal funds (can't sign orders)
+- Compromised wallet key = full account access
+- You can rotate API keys without changing wallets
+
+### Signature Replay Protection
+
+EIP-712 prevents signature reuse through:
+
+1. **Nonce:** Every order has a unique nonce
+   ```python
+   # From turbine_client/signer.py
+   def _generate_nonce(self):
+       timestamp = int(time.time())
+       random_part = secrets.randbelow(2**32)
+       return (timestamp << 32) | random_part  # Unique nonce
+   ```
+
+2. **Expiration:** Orders automatically expire
+   ```python
+   order = client.create_limit_buy(
+       ...,
+       expiration=int(time.time()) + 3600,  # Valid for 1 hour
+   )
+   ```
+
+3. **Domain separation:** Signatures locked to chain + contract
+
+### Best Practices
+
+**Development:**
+- Use a dedicated test wallet with minimal funds
+- Test on Polygon mainnet with small amounts ($10-20)
+- Store keys in `.env`, never hardcode
+
+**Production:**
+- Use environment variables, not `.env` files
+- Rotate API credentials periodically
+- Monitor for unauthorized orders
+- Use separate wallets for different strategies
+
+**Never:**
+- Share your private keys in Discord, forums, or chat
+- Commit `.env` to Git (add to `.gitignore`)
+- Use production keys in public repositories
+- Store keys in plaintext in cloud services
+
+## Implementation Examples
+
+### Complete Authentication Flow
+
+```python
+import os
+from dotenv import load_dotenv
+from turbine_client import TurbineClient
+
+# Load credentials from .env
+load_dotenv()
+
+private_key = os.getenv("TURBINE_PRIVATE_KEY")
+api_key_id = os.getenv("TURBINE_API_KEY_ID")
+api_private_key = os.getenv("TURBINE_API_PRIVATE_KEY")
+
+# Initialize client with full auth
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key=private_key,
+    api_key_id=api_key_id,
+    api_private_key=api_private_key,
+)
+
+# Verify authentication
+print(f"Wallet: {client.address}")
+print(f"Can sign: {client.can_sign}")
+print(f"Has auth: {client.has_auth}")
+
+# Create and submit an order
+market = client.get_quick_market("BTC")
+order = client.create_limit_buy(
+    market_id=market.market_id,
+    outcome=Outcome.YES,
+    price=500000,
+    size=1_000_000,
+)
+
+result = client.post_order(order)  # ✓ Fully authenticated
+print(f"Order submitted: {result['orderHash']}")
+```
+
+### Error Handling
+
+```python
+from turbine_client.exceptions import (
+    AuthenticationError,
+    SignatureError,
+    TurbineApiError,
+)
+
+try:
+    client.post_order(order)
+except AuthenticationError as e:
+    print(f"Auth failed: {e}")
+    print("Check API credentials in .env")
+except SignatureError as e:
+    print(f"Signature failed: {e}")
+    print("Check wallet private key")
+except TurbineApiError as e:
+    print(f"API error ({e.status_code}): {e.message}")
+```
+
+## Next Steps
+
+- [Order Types](/concepts/order-types) - Learn about limit orders and order lifecycle
+- [Gasless Trading](/concepts/gasless-trading) - Understand how Turbine eliminates gas fees

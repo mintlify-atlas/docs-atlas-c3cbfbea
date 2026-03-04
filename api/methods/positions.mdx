@@ -1,0 +1,300 @@
+---
+title: "Position Methods"
+description: "Query user positions, statistics, and trading activity"
+---
+
+Position methods provide access to user holdings, trading statistics, and activity. These methods require API credentials.
+
+## get_positions
+
+Get positions for a specific market, optionally filtered by user.
+
+<ParamField path="market_id" type="str" required>
+  The market ID to query.
+</ParamField>
+
+<ParamField path="user_address" type="str | None">
+  Optional user address to filter positions.
+</ParamField>
+
+**Returns:** `list[Position]` - List of positions in the market
+
+**Requires:** API credentials (bearer token authentication)
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+# Get the current BTC market
+quick_market = client.get_quick_market("BTC")
+
+# Get all positions in this market
+all_positions = client.get_positions(quick_market.market_id)
+print(f"Total positions: {len(all_positions)}")
+
+# Get your positions in this market
+my_positions = client.get_positions(
+    quick_market.market_id,
+    user_address=client.address
+)
+
+for pos in my_positions:
+    yes_shares = pos.yes_shares / 1_000_000
+    no_shares = pos.no_shares / 1_000_000
+    invested = pos.total_invested / 1_000_000
+    print(f"Position in {pos.market_id}:")
+    print(f"  YES shares: {yes_shares:.2f}")
+    print(f"  NO shares: {no_shares:.2f}")
+    print(f"  Total invested: ${invested:.2f}")
+```
+
+---
+
+## get_user_positions
+
+Get all positions for a user across all markets.
+
+<ParamField path="address" type="str" required>
+  The user's wallet address.
+</ParamField>
+
+<ParamField path="chain_id" type="int | None">
+  Optional chain ID to filter positions.
+</ParamField>
+
+**Returns:** `list[Position]` - List of all user positions
+
+**Requires:** API credentials (bearer token authentication)
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+# Get all your positions
+positions = client.get_user_positions(client.address)
+
+print(f"Total positions: {len(positions)}")
+
+total_invested = 0
+for pos in positions:
+    yes_shares = pos.yes_shares / 1_000_000
+    no_shares = pos.no_shares / 1_000_000
+    invested = pos.total_invested / 1_000_000
+    total_invested += invested
+    
+    print(f"\nMarket: {pos.market_id[:10]}...")
+    print(f"  YES: {yes_shares:.2f} shares")
+    print(f"  NO: {no_shares:.2f} shares")
+    print(f"  Invested: ${invested:.2f}")
+
+print(f"\nTotal invested across all markets: ${total_invested:.2f}")
+
+# Filter by chain
+polygon_positions = client.get_user_positions(
+    client.address,
+    chain_id=137
+)
+print(f"Polygon positions: {len(polygon_positions)}")
+```
+
+---
+
+## get_user_stats
+
+Get comprehensive statistics for the authenticated user.
+
+**Returns:** `UserStats` - User statistics including total cost, invested, position value, and PNL
+
+**Requires:** API credentials (bearer token authentication)
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+# Get your stats
+stats = client.get_user_stats()
+
+print("Your Trading Statistics:")
+print(f"  Total cost: ${stats.total_cost / 1_000_000:.2f}")
+print(f"  Total invested: ${stats.total_invested / 1_000_000:.2f}")
+print(f"  Position value: ${stats.position_value / 1_000_000:.2f}")
+print(f"  Realized PNL: ${stats.realized_pnl / 1_000_000:.2f}")
+print(f"  Unrealized PNL: ${stats.unrealized_pnl / 1_000_000:.2f}")
+print(f"  Total PNL: ${stats.total_pnl / 1_000_000:.2f}")
+print(f"  ROI: {stats.roi:.2f}%")
+print(f"  Win rate: {stats.win_rate:.2f}%")
+print(f"  Total trades: {stats.total_trades}")
+```
+
+---
+
+## get_user_activity
+
+Get trading activity summary for a user.
+
+<ParamField path="address" type="str" required>
+  The user's wallet address.
+</ParamField>
+
+**Returns:** `UserActivity` - User activity summary including trades, volume, and markets
+
+**Requires:** API credentials (bearer token authentication)
+
+**Example:**
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+# Get your activity
+activity = client.get_user_activity(client.address)
+
+print("Your Trading Activity:")
+print(f"  Total trades: {activity.total_trades}")
+print(f"  Total volume: ${activity.total_volume / 1_000_000:.2f}")
+print(f"  Markets traded: {activity.markets_traded}")
+print(f"  Active positions: {activity.active_positions}")
+print(f"  Last trade: {activity.last_trade_timestamp}")
+
+# Check another user's activity
+other_user = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
+other_activity = client.get_user_activity(other_user)
+print(f"\nUser {other_user[:8]}... has {other_activity.total_trades} trades")
+```
+
+---
+
+## Related Types
+
+### Position
+
+```python
+@dataclass
+class Position:
+    id: int
+    market_id: str
+    user_address: str
+    yes_shares: int  # With 6 decimals
+    no_shares: int  # With 6 decimals
+    yes_cost: int  # Total cost of YES shares (6 decimals)
+    no_cost: int  # Total cost of NO shares (6 decimals)
+    yes_revenue: int  # Revenue from selling YES (6 decimals)
+    no_revenue: int  # Revenue from selling NO (6 decimals)
+    total_invested: int  # Net amount invested (6 decimals)
+    total_cost: int  # Gross cost (6 decimals)
+    total_revenue: int  # Gross revenue (6 decimals)
+    last_updated: int  # Unix timestamp
+```
+
+### UserStats
+
+```python
+@dataclass
+class UserStats:
+    total_cost: int  # Total amount spent (6 decimals)
+    total_invested: int  # Net invested (cost - revenue, 6 decimals)
+    position_value: int  # Current value of holdings (6 decimals)
+    realized_pnl: int  # Realized profit/loss (6 decimals)
+    unrealized_pnl: int  # Unrealized profit/loss (6 decimals)
+    total_pnl: int  # Total PNL (6 decimals)
+    roi: float  # Return on investment (%)
+    win_rate: float  # Percentage of winning trades
+    total_trades: int  # Number of trades executed
+```
+
+### UserActivity
+
+```python
+@dataclass
+class UserActivity:
+    total_trades: int  # Number of trades
+    total_volume: int  # Total trading volume (6 decimals)
+    markets_traded: int  # Number of unique markets
+    active_positions: int  # Number of open positions
+    last_trade_timestamp: int  # Unix timestamp of last trade
+```
+
+---
+
+## Calculating PNL
+
+Positions track both cost and revenue to enable PNL calculations:
+
+```python
+from turbine_client import TurbineClient
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key="your_private_key",
+    api_key_id="your_api_key_id",
+    api_private_key="your_api_private_key"
+)
+
+positions = client.get_user_positions(client.address)
+
+for pos in positions:
+    # Convert to USDC (6 decimals → dollars)
+    yes_shares = pos.yes_shares / 1_000_000
+    no_shares = pos.no_shares / 1_000_000
+    yes_cost = pos.yes_cost / 1_000_000
+    no_cost = pos.no_cost / 1_000_000
+    yes_revenue = pos.yes_revenue / 1_000_000
+    no_revenue = pos.no_revenue / 1_000_000
+    
+    # Net invested = cost - revenue from sells
+    net_invested = pos.total_invested / 1_000_000
+    
+    # For realized PNL, compare revenue to cost for closed positions
+    # For unrealized PNL, you'd need current market prices
+    
+    print(f"Position {pos.market_id[:10]}...")
+    print(f"  YES: {yes_shares:.2f} shares @ ${yes_cost:.2f} cost")
+    print(f"  NO: {no_shares:.2f} shares @ ${no_cost:.2f} cost")
+    print(f"  Revenue: ${yes_revenue + no_revenue:.2f}")
+    print(f"  Net invested: ${net_invested:.2f}")
+```
+
+---
+
+## Notes
+
+- **Authentication required:** All position methods require API credentials (bearer token).
+- **Scaling:** All monetary values and share counts use 6 decimals. Divide by 1,000,000 to get human-readable values.
+- **Real-time data:** Positions are updated in real-time as trades execute.
+- **Cross-market aggregation:** `get_user_positions()` and `get_user_stats()` aggregate data across all markets.
+- **Privacy:** You can only query detailed position data for markets you're authenticated for. Public market data (orderbooks, trades) is available without authentication.

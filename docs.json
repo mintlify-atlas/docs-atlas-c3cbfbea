@@ -1,122 +1,102 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Turbine Python Client",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#7c7c7c",
+    "light": "#070707",
+    "dark": "#d9d9d9"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/d99cdee7-ebb5-42b8-bd98-7492cf9543f4.png",
+  "logo": {
+    "light": "https://media.brand.dev/f6baa6f1-66cf-49bd-8f13-0a6d90c79858.svg",
+    "dark": "https://media.brand.dev/4346767c-991e-424b-abd3-7749eb56eefc.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/ojo-network/turbine-py-client"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/ojo-network/turbine-py-client"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/prediction-markets",
+              "concepts/authentication",
+              "concepts/order-types",
+              "concepts/gasless-trading"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Guides",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "guides/first-trade",
+              "guides/building-bots",
+              "guides/market-data",
+              "guides/websocket-streams",
+              "guides/claiming-winnings",
+              "guides/deployment"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Examples",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "examples/overview",
+              "examples/price-action-bot",
+              "examples/market-maker",
+              "examples/position-monitoring"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Client",
             "pages": [
-              "api-reference/introduction"
+              "api/turbine-client",
+              "api/websocket-client"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Core Methods",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/methods/orders",
+              "api/methods/market-data",
+              "api/methods/positions",
+              "api/methods/relayer"
+            ]
+          },
+          {
+            "group": "Types",
+            "pages": [
+              "api/types/order-types",
+              "api/types/market-types",
+              "api/types/data-types",
+              "api/types/exceptions"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,368 @@
+---
+title: Installation
+description: Detailed setup instructions for the Turbine Python Client SDK
+---
+
+This guide covers all installation methods and common setup issues.
+
+## Requirements
+
+<CardGroup cols={2}>
+  <Card title="Python 3.9+" icon="python">
+    The SDK requires Python 3.9 or higher
+  </Card>
+  <Card title="pip or git" icon="box">
+    Install via pip or clone from source
+  </Card>
+</CardGroup>
+
+Check your Python version:
+
+```bash
+python --version
+# Should show 3.9.0 or higher
+```
+
+## Install via pip
+
+The simplest installation method:
+
+```bash
+pip install turbine-py-client
+```
+
+Verify the installation:
+
+```python
+from turbine_client import TurbineClient
+print("SDK installed successfully")
+```
+
+## Install from source
+
+For development or to use the latest features:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/ojo-network/turbine-py-client.git
+    cd turbine-py-client
+    ```
+  </Step>
+
+  <Step title="Create a virtual environment">
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+    ```
+
+    <Note>
+      Always use a virtual environment to avoid dependency conflicts.
+    </Note>
+  </Step>
+
+  <Step title="Install in editable mode">
+    ```bash
+    pip install -e .
+    ```
+
+    This installs the SDK in "editable" mode, so changes to the source code are immediately reflected.
+  </Step>
+</Steps>
+
+## Install development dependencies
+
+If you're contributing to the SDK or running tests:
+
+```bash
+pip install -e ".[dev]"
+```
+
+This includes:
+
+- `pytest` — Test framework
+- `pytest-asyncio` — Async test support
+- `mypy` — Type checking
+- `ruff` — Linting and formatting
+- `respx` — HTTP mocking for tests
+
+## Dependencies
+
+The SDK has minimal dependencies:
+
+| Package | Version | Purpose |
+|---------|---------|----------|
+| `eth-account` | ≥0.13.0 | Ethereum wallet operations and EIP-712 signing |
+| `eth-utils` | ≥4.1.1 | Ethereum utility functions |
+| `httpx[http2]` | ≥0.27.0 | HTTP client with HTTP/2 support |
+| `websockets` | ≥12.0 | WebSocket client for real-time updates |
+| `pynacl` | ≥1.5.0 | Ed25519 signing for API authentication |
+| `python-dotenv` | ≥1.0.0 | Environment variable management |
+
+All dependencies are automatically installed with the SDK.
+
+## Configuration
+
+### Environment variables
+
+Create a `.env` file in your project root:
+
+```bash
+# Required for trading
+TURBINE_PRIVATE_KEY=0x...  # Your wallet private key
+
+# Auto-generated on first run (leave blank initially)
+TURBINE_API_KEY_ID=
+TURBINE_API_PRIVATE_KEY=
+
+# Chain configuration
+CHAIN_ID=137  # Polygon mainnet (recommended)
+
+# API host
+TURBINE_HOST=https://api.turbinefi.com
+```
+
+### Load environment variables
+
+In your Python code:
+
+```python
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Load .env file
+
+private_key = os.environ.get("TURBINE_PRIVATE_KEY")
+chain_id = int(os.environ.get("CHAIN_ID", "137"))
+```
+
+## Chain configurations
+
+The SDK supports three chains:
+
+<Tabs>
+  <Tab title="Polygon (recommended)">
+    ```python
+    from turbine_client import TurbineClient
+
+    client = TurbineClient(
+        host="https://api.turbinefi.com",
+        chain_id=137,  # Polygon mainnet
+        private_key="0x...",
+    )
+    ```
+
+    **Contract addresses:**
+    - Settlement: `0xdB96C91d9e5930fE3Ed1604603CfA4ece454725c`
+    - CTF: `0xA86e521D596D626E2347875F1a4a23719dDaC0B6`
+    - USDC: `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`
+  </Tab>
+
+  <Tab title="Avalanche">
+    ```python
+    from turbine_client import TurbineClient
+
+    client = TurbineClient(
+        host="https://api.turbinefi.com",
+        chain_id=43114,  # Avalanche mainnet
+        private_key="0x...",
+    )
+    ```
+
+    **Contract addresses:**
+    - Settlement: `0x893ca652525B1F9DC25189ED9c3AD0543ACfb989`
+    - CTF: `0xA86e521D596D626E2347875F1a4a23719dDaC0B6`
+    - USDC: `0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E`
+  </Tab>
+
+  <Tab title="Base Sepolia (testnet)">
+    ```python
+    from turbine_client import TurbineClient
+
+    client = TurbineClient(
+        host="https://api.turbinefi.com",
+        chain_id=84532,  # Base Sepolia testnet
+        private_key="0x...",
+    )
+    ```
+
+    <Warning>
+      Base Sepolia is currently **not operational**. Use Polygon for testing.
+    </Warning>
+
+    **Contract addresses:**
+    - Settlement: `0xF37B881F236033E55bF1cdAB628c7Cd88aAd89D4`
+    - CTF: `0xc5Eb8d9dE7c56CC600B9ed4E71318307C740f5ED`
+    - USDC: `0xf9065CCFF7025649F16D547DC341DAffF0C7F7f6`
+  </Tab>
+</Tabs>
+
+## Getting a wallet
+
+You need an Ethereum-compatible wallet private key:
+
+### Option 1: Export from MetaMask
+
+1. Install [MetaMask browser extension](https://metamask.io/)
+2. Create or import an account
+3. Go to **Settings → Security & Privacy**
+4. Click **Export Private Key**
+5. Copy the private key (starts with `0x`)
+
+### Option 2: Generate programmatically
+
+```python
+from eth_account import Account
+
+# Generate a new wallet
+acct = Account.create()
+print(f"Address: {acct.address}")
+print(f"Private Key: {acct.key.hex()}")
+
+# SAVE THESE! You'll need the private key to sign orders.
+```
+
+<Warning>
+  **Security best practices:**
+  - Never commit your `.env` file to git
+  - Use separate wallets for development and production
+  - Store private keys securely (consider using a secrets manager for production)
+</Warning>
+
+## Funding your wallet
+
+You need USDC on Polygon to trade:
+
+<Steps>
+  <Step title="Get USDC on Polygon">
+    **Minimum:** ~$10 USDC on Polygon mainnet
+
+    **Options:**
+    - Bridge from Ethereum/other chains using [Polygon Bridge](https://wallet.polygon.technology/bridge)
+    - Withdraw directly from an exchange that supports Polygon (Coinbase, Binance, etc.)
+    - Use a cross-chain swap service like [Jumper](https://jumper.exchange/)
+  </Step>
+
+  <Step title="Verify your balance">
+    ```python
+    from turbine_client import TurbineClient
+
+    client = TurbineClient(
+        host="https://api.turbinefi.com",
+        chain_id=137,
+        private_key="0x...",
+    )
+
+    # Check USDC balance
+    balances = client.get_user_balances(client.address)
+    print(f"USDC: ${balances['usdc'] / 1e6:.2f}")
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  You do **NOT** need MATIC or any other gas tokens. Turbine is fully gasless — all operations are routed through the API.
+</Note>
+
+## Verifying installation
+
+Test that everything works:
+
+```python
+from turbine_client import TurbineClient
+
+# Test public access (no auth)
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+)
+
+# Check API health
+health = client.get_health()
+print(f"API Status: {health}")
+
+# Get markets
+markets = client.get_markets()
+print(f"Found {len(markets)} markets")
+
+client.close()
+print("✅ Installation verified")
+```
+
+## Troubleshooting
+
+### Import errors
+
+**Problem:** `ModuleNotFoundError: No module named 'turbine_client'`
+
+**Solution:**
+```bash
+# Make sure you're in the correct virtual environment
+source .venv/bin/activate
+
+# Reinstall the SDK
+pip install --upgrade turbine-py-client
+```
+
+### API credentials not generating
+
+**Problem:** `AuthenticationError: API credentials required`
+
+**Solution:**
+```python
+# Manually request credentials
+from turbine_client import TurbineClient
+
+credentials = TurbineClient.request_api_credentials(
+    host="https://api.turbinefi.com",
+    private_key="0x...",
+)
+
+print(f"API Key ID: {credentials['api_key_id']}")
+print(f"API Private Key: {credentials['api_private_key']}")
+
+# Add these to your .env file
+```
+
+### Connection errors
+
+**Problem:** `httpx.ConnectError: Connection refused`
+
+**Solution:**
+- Check your internet connection
+- Verify the API host is correct: `https://api.turbinefi.com`
+- Check if the API is operational: https://status.turbinefi.com
+
+### Python version errors
+
+**Problem:** `SyntaxError` or type hint errors
+
+**Solution:**
+```bash
+# Check Python version (must be 3.9+)
+python --version
+
+# Upgrade Python if needed
+# On Ubuntu/Debian:
+sudo apt update && sudo apt install python3.11
+
+# On macOS:
+brew install python@3.11
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Place your first trade
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference">
+    Explore all SDK methods
+  </Card>
+  <Card title="Trading bot guide" icon="robot" href="/guides/trading-bot">
+    Build an automated trading strategy
+  </Card>
+  <Card title="WebSocket streaming" icon="bolt" href="/websocket">
+    Real-time market data
+  </Card>
+</CardGroup>

@@ -1,0 +1,324 @@
+---
+title: 'Placing Your First Trade'
+description: 'Complete guide to setting up your environment and executing your first trade on Turbine'
+icon: 'play'
+---
+
+This guide walks you through everything you need to place your first trade on Turbine, from setting up your wallet to verifying your order execution.
+
+## Overview
+
+Turbine is a gasless prediction markets platform where you trade on whether BTC will go up or down in the next 15 minutes. Every 15 minutes, a new market opens with a simple question like: *"Will BTC be above $97,250 at 3:15 PM?"*
+
+You buy shares representing your prediction:
+- **YES shares** pay $1.00 if BTC finishes above the strike price
+- **NO shares** pay $1.00 if BTC finishes below the strike price
+
+Shares are priced between $0.01 and $0.99 based on market confidence. If you're right, you profit. If you're wrong, you lose your investment.
+
+<Warning>
+Turbine currently runs on **Polygon mainnet (chain ID 137)**. You'll need real USDC (minimum ~$10) to trade. The testnet is not operational.
+</Warning>
+
+## Prerequisites
+
+- Python 3.9 or higher
+- An Ethereum-compatible wallet
+- USDC on Polygon mainnet (~$10 minimum)
+
+<Steps>
+
+### Step 1: Install the SDK
+
+First, install the Turbine Python client:
+
+```bash
+pip install turbine-py-client
+```
+
+Or install from source:
+
+```bash
+git clone https://github.com/ojo-network/turbine-py-client.git
+cd turbine-py-client
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+```
+
+### Step 2: Create or Import a Wallet
+
+You need an Ethereum-compatible wallet. The easiest option is MetaMask:
+
+**Using MetaMask:**
+1. Install the [MetaMask browser extension](https://metamask.io/)
+2. Create a new account or import an existing one
+3. Export your private key: Settings → Security & Privacy → Export Private Key
+
+**Or generate a new wallet in Python:**
+
+```python
+from eth_account import Account
+
+acct = Account.create()
+print(f"Address: {acct.address}")
+print(f"Private Key: {acct.key.hex()}")
+# SAVE THESE SECURELY!
+```
+
+<Warning>
+Never share your private key. Anyone with access to it can control your funds.
+</Warning>
+
+### Step 3: Fund Your Wallet with USDC
+
+You'll need USDC on Polygon mainnet. Here are a few ways to get it:
+
+1. **Bridge from another chain** using [Polygon Bridge](https://wallet.polygon.technology/polygon/bridge)
+2. **Withdraw from an exchange** that supports Polygon (Binance, Coinbase, etc.)
+3. **Swap on Polygon** using [Uniswap](https://app.uniswap.org/) or [QuickSwap](https://quickswap.exchange/)
+
+USDC contract on Polygon: `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`
+
+<Info>
+No native gas tokens (MATIC) are needed! Turbine is fully gasless - all operations are routed through the API's relayer.
+</Info>
+
+### Step 4: Configure Environment Variables
+
+Create a `.env` file in your project directory:
+
+```bash
+TURBINE_PRIVATE_KEY=0xyour_private_key_here
+CHAIN_ID=137
+TURBINE_HOST=https://api.turbinefi.com
+```
+
+API credentials (`TURBINE_API_KEY_ID` and `TURBINE_API_PRIVATE_KEY`) are generated automatically on first run.
+
+### Step 5: Create Your First Order
+
+Now let's write a simple script to place your first trade:
+
+```python first_trade.py
+import os
+import time
+from dotenv import load_dotenv
+from turbine_client import TurbineClient, Outcome, Side
+
+# Load environment variables
+load_dotenv()
+
+# Initialize client
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,  # Polygon mainnet
+    private_key=os.getenv("TURBINE_PRIVATE_KEY"),
+)
+
+print(f"Connected as: {client.address}")
+
+# Get the current BTC quick market
+market = client.get_quick_market("BTC")
+print(f"\nMarket: {market.question}")
+print(f"Strike Price: ${market.start_price / 1e6:,.2f}")
+print(f"Expires: {time.strftime('%H:%M:%S', time.localtime(market.end_time))}")
+
+# Check the current orderbook
+orderbook = client.get_orderbook(market.market_id)
+if orderbook.bids:
+    best_bid = orderbook.bids[0].price / 10000
+    print(f"\nBest YES bid: {best_bid:.2f}%")
+if orderbook.asks:
+    best_ask = orderbook.asks[0].price / 10000
+    print(f"Best YES ask: {best_ask:.2f}%")
+
+# Place a limit buy order for YES shares at 45%
+order = client.create_limit_buy(
+    market_id=market.market_id,
+    outcome=Outcome.YES,
+    price=450000,      # 45% (price scaled by 1e6)
+    size=2_000_000,    # 2 shares (6 decimals)
+)
+
+print(f"\nOrder created: {order.order_hash}")
+
+# Submit the order
+result = client.post_order(order)
+print(f"Order submitted!")
+print(f"  Order hash: {result['orderHash']}")
+print(f"  Status: {result.get('status', 'pending')}")
+
+# Clean up
+client.close()
+```
+
+### Step 6: Run the Script
+
+Execute your trading script:
+
+```bash
+python first_trade.py
+```
+
+You should see output similar to:
+
+```
+Connected as: 0x1234...
+
+Market: Will BTC be above $97,250 at 15:15:00?
+Strike Price: $97,250.00
+Expires: 15:15:00
+
+Best YES bid: 48.50%
+Best YES ask: 51.20%
+
+Order created: 0xabcd...
+Order submitted!
+  Order hash: 0xabcd...
+  Status: pending
+```
+
+### Step 7: Verify Your Order
+
+Check that your order was placed successfully:
+
+```python verify_order.py
+from turbine_client import TurbineClient
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+client = TurbineClient(
+    host="https://api.turbinefi.com",
+    chain_id=137,
+    private_key=os.getenv("TURBINE_PRIVATE_KEY"),
+)
+
+# Get your open orders
+orders = client.get_orders(trader=client.address)
+
+print(f"Open orders for {client.address}:")
+for order in orders:
+    price_pct = order.price / 10000
+    shares = order.size / 1_000_000
+    filled = order.filled_size / 1_000_000
+    side = "BUY" if order.side == 0 else "SELL"
+    outcome = "YES" if order.outcome == 0 else "NO"
+    
+    print(f"\n  {order.order_hash[:10]}...")
+    print(f"  {side} {shares:.2f} {outcome} @ {price_pct:.2f}%")
+    print(f"  Filled: {filled:.2f} / {shares:.2f}")
+    print(f"  Status: {order.status}")
+
+client.close()
+```
+
+</Steps>
+
+## Understanding Price and Size
+
+### Price Representation
+
+Prices in Turbine are scaled by 1,000,000 (1e6):
+- `500000` = 50% (even odds)
+- `250000` = 25%
+- `750000` = 75%
+- Range: 1 to 999,999
+
+### Size (Shares)
+
+Sizes are also scaled by 1,000,000 (6 decimals):
+- `1_000_000` = 1 share
+- `10_000_000` = 10 shares
+
+### Order Cost
+
+The cost of an order in USDC is:
+```
+Cost = (size × price) / 1e12
+```
+
+For example:
+- Buying 2 shares at 45% = `(2_000_000 × 450000) / 1e12` = $0.90 USDC
+
+<Warning>
+**Minimum Order Size:** Taker orders (orders that fill immediately) must have a total value of at least **$1 USDC** (size × price ≥ $1). Maker orders (resting limit orders) have no minimum.
+</Warning>
+
+## Canceling Orders
+
+If you want to cancel an order before it fills:
+
+```python
+from turbine_client import Side
+
+# Cancel a specific order
+client.cancel_order(
+    order_hash="0xabcd...",
+    market_id=market.market_id,
+    side=Side.BUY
+)
+
+# Or cancel all orders for a market
+client.cancel_market_orders(market_id=market.market_id)
+```
+
+## Next Steps
+
+Congratulations! You've placed your first trade on Turbine. Here's what to explore next:
+
+<CardGroup cols={2}>
+  <Card title="Build a Trading Bot" icon="robot" href="/guides/building-bots">
+    Learn how to automate your trading with a bot
+  </Card>
+  <Card title="Market Data" icon="chart-line" href="/guides/market-data">
+    Access orderbooks, trades, and statistics
+  </Card>
+  <Card title="WebSocket Streams" icon="bolt" href="/guides/websocket-streams">
+    Get real-time market updates via WebSocket
+  </Card>
+  <Card title="Claim Winnings" icon="trophy" href="/guides/claiming-winnings">
+    Learn how to claim from resolved markets
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### "Insufficient allowance" Error
+
+You need to approve USDC for the settlement contract. This is a one-time gasless operation:
+
+```python
+# Get market details
+market = client.get_quick_market("BTC")
+
+# Approve USDC (gasless)
+result = client.approve_usdc_for_settlement(market.settlement_address)
+print(f"Approval transaction: {result['tx_hash']}")
+```
+
+### "Order rejected" Error
+
+Check these common issues:
+- Order size too small (minimum $1 for taker orders)
+- Insufficient USDC balance
+- Price outside valid range (1 to 999,999)
+- Market has expired
+
+### "Invalid signature" Error
+
+Make sure your `TURBINE_PRIVATE_KEY` is correctly formatted:
+- Must start with `0x`
+- Must be 64 hexadecimal characters long (66 total with `0x`)
+
+## Reference
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api-reference/client">
+    Complete SDK documentation
+  </Card>
+  <Card title="Example Code" icon="file-code" href="https://github.com/ojo-network/turbine-py-client/tree/main/examples">
+    Browse example scripts on GitHub
+  </Card>
+</CardGroup>

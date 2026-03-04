@@ -1,0 +1,220 @@
+---
+title: "Examples Overview"
+description: "Guide to example bots and SDK usage snippets in the Turbine Python Client"
+---
+
+The Turbine Python Client includes 14 example files serving different purposes. This guide helps you find the right example for your needs.
+
+## Start Here
+
+If you're new to Turbine or building your first trading bot, **start with the Price Action Bot**. It's the canonical reference implementation that demonstrates every aspect of the bot lifecycle.
+
+<Card title="Price Action Bot" icon="chart-line" href="/examples/price-action-bot">
+  **787 lines** — The complete reference implementation. Fetches live BTC price from Pyth Network, compares to strike, buys YES or NO. Handles credentials, USDC approval, trading, market rotation, and claiming. Read this first.
+</Card>
+
+## Trading Bots
+
+Full production-ready bots that run 24/7, automatically switching markets and claiming winnings.
+
+<CardGroup cols={2}>
+  <Card title="Price Action Bot" icon="chart-line" href="/examples/price-action-bot">
+    **Recommended for beginners**  
+    Trades based on live oracle price vs strike. Simple, effective, and aligned with how markets resolve.
+  </Card>
+  
+  <Card title="Market Maker Bot" icon="arrows-left-right" href="/examples/market-maker">
+    **Advanced strategy**  
+    Statistical probability-based market making with momentum tracking, inventory management, and circuit breakers.
+  </Card>
+</CardGroup>
+
+### Which Bot Should I Build?
+
+| Your Goal | Recommended Bot | Why |
+|-----------|----------------|-----|
+| **Learn the basics** | Price Action | Simple logic, demonstrates all infrastructure patterns |
+| **Win competitions** | Price Action or Market Maker | Both proven strategies with different risk profiles |
+| **Provide liquidity** | Market Maker | Posts resting orders on both sides of the book |
+| **Build custom strategy** | Start from Price Action | Use it as a template, replace the signal logic |
+
+## SDK Usage Snippets
+
+Small, focused scripts demonstrating individual SDK features. Good for understanding the API surface without the complexity of a full bot.
+
+<CardGroup cols={2}>
+  <Card title="Basic Usage" icon="book-open">
+    **Read-only API calls**  
+    Fetch markets, orderbook, trades. No auth required. Start here to explore data.
+    
+    [View source](https://github.com/ojo-network/turbine-py-client/blob/main/examples/basic_usage.py)
+  </Card>
+  
+  <Card title="Create Order" icon="file-signature">
+    **EIP-712 signing**  
+    Create signed orders using helper functions. Shows price/size conversion.
+    
+    [View source](https://github.com/ojo-network/turbine-py-client/blob/main/examples/create_order.py)
+  </Card>
+  
+  <Card title="Submit Order" icon="paper-plane">
+    **Full order workflow**  
+    Create, submit, retrieve, and cancel orders. Demonstrates authenticated trading.
+    
+    [View source](https://github.com/ojo-network/turbine-py-client/blob/main/examples/submit_order.py)
+  </Card>
+  
+  <Card title="WebSocket Stream" icon="satellite-dish">
+    **Real-time data**  
+    Subscribe to orderbook updates, trades, and market rotations via WebSocket.
+    
+    [View source](https://github.com/ojo-network/turbine-py-client/blob/main/examples/websocket_stream.py)
+  </Card>
+</CardGroup>
+
+## Utilities
+
+One-off scripts for managing positions and claiming winnings outside of a bot.
+
+<CardGroup cols={2}>
+  <Card title="Position Monitoring" icon="chart-pie" href="/examples/position-monitoring">
+    **Track your positions**  
+    Fetch current positions and calculate P&L across all markets.
+  </Card>
+  
+  <Card title="Claim Winnings" icon="coins">
+    **Manual claiming**  
+    Claim winnings from a single resolved market via the gasless relayer.
+    
+    [View source](https://github.com/ojo-network/turbine-py-client/blob/main/examples/claim_winnings.py)
+  </Card>
+  
+  <Card title="Batch Claim" icon="layer-group">
+    **Bulk operations**  
+    Claim winnings from multiple resolved markets in one batch transaction.
+    
+    [View source](https://github.com/ojo-network/turbine-py-client/blob/main/examples/batch_claim_winnings.py)
+  </Card>
+</CardGroup>
+
+## Testing & Stress
+
+Load testing and integration tests. Not relevant for building a trading bot — skip these unless you're testing the API itself.
+
+<Accordion title="View testing scripts">
+  | File | Purpose |
+  |------|--------|
+  | `stress_test_bot.py` | Places N trades simultaneously to test API concurrency |
+  | `setup_stress_test_accounts.py` | Generates test accounts and funds them with testnet USDC |
+  | `test_order_integration.py` | Integration test for API credential registration |
+  | `full_order_lifecycle.py` | End-to-end test: place → cancel → fill → sell |
+</Accordion>
+
+## Next Steps
+
+<Steps>
+  <Step title="Read the canonical reference">
+    Start with the [Price Action Bot walkthrough](/examples/price-action-bot) to understand the complete bot structure.
+  </Step>
+  
+  <Step title="Understand the strategy">
+    Learn why it works: the Price Action strategy trades based on the same oracle (Pyth Network) that Turbine uses to resolve markets.
+  </Step>
+  
+  <Step title="Run it locally">
+    ```bash
+    TURBINE_PRIVATE_KEY=0x... python examples/price_action_bot.py
+    ```
+  </Step>
+  
+  <Step title="Customize the signal">
+    Replace `calculate_signal()` with your own trading logic. Everything else stays the same.
+  </Step>
+</Steps>
+
+## Key Infrastructure Patterns
+
+Every working bot must implement these patterns. **Do not remove or alter them** when building your own bot:
+
+### 1. Order Verification Chain
+
+After submitting an order, wait 2 seconds, then check in sequence:
+1. **Failed trades** — did it get rejected?
+2. **Pending trades** — is it processing on-chain?
+3. **Recent trades** — did it fill immediately?
+4. **Open orders** — is it resting on the book?
+
+This ensures the bot knows the true state of every order.
+
+### 2. Gasless USDC Approval
+
+One-time gasless permit per settlement contract. Check allowance first via API, skip if already approved. `approve_usdc()` returns a dict with `tx_hash` (not a raw string).
+
+```python
+result = client.approve_usdc_for_settlement(settlement_address)
+tx_hash = result.get("tx_hash")
+```
+
+### 3. Market Rotation
+
+Poll for new markets every 5 seconds. When a new market appears:
+1. Cancel all orders on the old market
+2. Reset state variables
+3. Start trading the new market
+
+### 4. Claiming Winnings
+
+Background task that checks for resolved markets and claims via the gasless relayer. Enforce a 15-second delay between claims (API rate limit).
+
+### 5. Market Expiration
+
+Stop placing new orders when less than 60 seconds remain. The `market_expiring` flag prevents the bot from getting stuck with orders on an expired market.
+
+<Info>
+  These patterns exist in both the Price Action and Market Maker bots. Study how they're implemented, then preserve them in your own strategies.
+</Info>
+
+## Common Questions
+
+<AccordionGroup>
+  <Accordion title="Can I modify the example bots?">
+    **Yes!** The examples are templates. The core creative decision is the **trading signal** — everything else (market management, USDC approval, order submission, position tracking, claiming) follows the same pattern across all bots.
+    
+    To build a custom strategy:
+    1. Copy `price_action_bot.py` as a starting point
+    2. Replace the `calculate_signal()` function with your logic
+    3. Keep all infrastructure patterns intact
+  </Accordion>
+  
+  <Accordion title="Why start with Price Action instead of Market Maker?">
+    Price Action is simpler and more intuitive:
+    - **Single signal:** Buy YES if price > strike, NO if price < strike
+    - **Directional:** Takes a position based on market direction
+    - **Oracle-aligned:** Uses the same Pyth feed that resolves markets
+    
+    Market Maker is more complex:
+    - **Statistical model:** Normal CDF probability calculation with time decay
+    - **Inventory management:** Tracks net exposure and adjusts quotes
+    - **Circuit breakers:** Adverse selection detection
+    - **Multi-level quoting:** Geometric size distribution across price levels
+    
+    Start simple, then level up.
+  </Accordion>
+  
+  <Accordion title="How much USDC do I need?">
+    Depends on your bot's order size and max position:
+    
+    - **Price Action default:** $1 per order, $10 max position = **~$10 minimum**
+    - **Market Maker default:** $60 total allocation per asset = **~$60 minimum**
+    - **Testing:** Start with $10-20 to learn without risk
+    - **Competition:** Top bots typically run $100-500+ in capital
+    
+    Note: Taker orders (orders that fill immediately) must be ≥ $1 USDC. Maker orders (resting orders) have no minimum.
+  </Accordion>
+  
+  <Accordion title="Can I run multiple bots from the same wallet?">
+    **No.** Each bot needs its own wallet (private key). Running multiple bots from the same wallet will cause race conditions, double-spends, and nonce conflicts.
+    
+    For the weekly competition, you can register multiple bots (each with its own wallet) under the same account.
+  </Accordion>
+</AccordionGroup>

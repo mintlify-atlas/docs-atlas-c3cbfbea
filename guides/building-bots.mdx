@@ -1,0 +1,510 @@
+---
+title: 'Building Trading Bots'
+description: 'Learn how to build automated trading bots for Turbine prediction markets'
+icon: 'robot'
+---
+
+This guide covers everything you need to build a trading bot for Turbine's 15-minute BTC prediction markets, from basic structure to production-ready strategies.
+
+## What is a Trading Bot?
+
+A trading bot is an automated program that executes trades based on predefined logic. On Turbine, bots:
+
+1. Monitor the current BTC quick market (15-minute cycles)
+2. Analyze market conditions and generate trading signals
+3. Place, manage, and cancel orders automatically
+4. Transition to new markets when they rotate every 15 minutes
+5. Claim winnings from resolved markets
+
+## Bot Architecture
+
+All Turbine bots follow a common structure. Here's the anatomy of a well-designed trading bot:
+
+### Core Components
+
+```python
+class TradingBot:
+    def __init__(self, client: TurbineClient, order_size: float, max_position: float):
+        self.client = client
+        self.order_size = order_size  # USDC per trade
+        self.max_position = max_position  # Max USDC exposure
+        
+        # State tracking
+        self.market_id = None
+        self.settlement_address = None
+        self.strike_price = 0
+        self.position_usdc = 0.0
+        self.active_orders = {}  # order_hash -> details
+        self.market_expiring = False
+        
+    async def run(self):
+        """Main bot loop."""
+        while self.running:
+            # 1. Get current market
+            market = self.client.get_quick_market("BTC")
+            
+            # 2. Handle market transitions
+            if market.market_id != self.market_id:
+                await self.transition_market(market)
+            
+            # 3. Calculate trading signal
+            signal = self.calculate_signal(market)
+            
+            # 4. Execute trades based on signal
+            await self.execute_signal(signal)
+            
+            # 5. Manage existing positions
+            await self.manage_positions()
+            
+            # 6. Sleep before next iteration
+            await asyncio.sleep(10)
+    
+    def calculate_signal(self, market) -> str:
+        """Core trading logic - returns 'BUY_YES', 'BUY_NO', or 'HOLD'."""
+        raise NotImplementedError("Implement your strategy here")
+```
+
+### Essential Infrastructure
+
+Every production bot needs these critical features:
+
+#### 1. Market Transition Handling
+
+```python
+async def transition_market(self, new_market: QuickMarket):
+    """Handle switching to a new 15-minute market."""
+    print(f"New market detected: {new_market.question}")
+    
+    # Cancel all orders from old market
+    if self.market_id:
+        try:
+            self.client.cancel_market_orders(self.market_id)
+            print("Canceled old market orders")
+        except Exception as e:
+            print(f"Error canceling orders: {e}")
+    
+    # Update state
+    self.market_id = new_market.market_id
+    self.settlement_address = new_market.settlement_address
+    self.strike_price = new_market.start_price
+    self.market_expiring = False
+    self.active_orders.clear()
+    
+    # Approve USDC for new settlement contract (if needed)
+    await self.approve_usdc(new_market.settlement_address)
+```
+
+#### 2. Gasless USDC Approval
+
+```python
+async def approve_usdc(self, settlement_address: str):
+    """One-time gasless USDC approval per settlement contract."""
+    # Check if already approved
+    if settlement_address in self.approved_settlements:
+        return
+    
+    try:
+        # Gasless approval via API relayer
+        result = self.client.approve_usdc_for_settlement(settlement_address)
+        print(f"USDC approved: {result['tx_hash']}")
+        
+        # Track to avoid duplicate approvals
+        self.approved_settlements[settlement_address] = True
+        
+        # Wait for confirmation
+        await asyncio.sleep(2)
+    except Exception as e:
+        print(f"Approval error: {e}")
+```
+
+#### 3. Order Verification Chain
+
+After submitting an order, verify its status through this sequence:
+
+```python
+async def verify_order(self, order_hash: str, market_id: str):
+    """Verify order status after submission."""
+    # Wait for processing
+    await asyncio.sleep(2)
+    
+    # Check 1: Failed trades
+    failed = self.client.get_failed_trades()
+    for trade in failed:
+        if trade.get('orderHash') == order_hash:
+            print(f"Order failed: {trade.get('error')}")
+            return False
+    
+    # Check 2: Pending trades
+    pending = self.client.get_pending_trades()
+    for trade in pending:
+        if trade.get('orderHash') == order_hash:
+            print("Order pending settlement")
+            return True
+    
+    # Check 3: Recent trades (filled)
+    trades = self.client.get_trades(market_id, limit=20)
+    for trade in trades:
+        if hasattr(trade, 'order_hash') and trade.order_hash == order_hash:
+            print(f"Order filled at {trade.price / 10000:.2f}%")
+            return True
+    
+    # Check 4: Open orders (resting)
+    orders = self.client.get_orders(trader=self.client.address)
+    for order in orders:
+        if order.order_hash == order_hash:
+            print(f"Order resting on book")
+            return True
+    
+    print("Order status unknown")
+    return False
+```
+
+#### 4. Position Tracking
+
+```python
+def update_position(self, trade_size: float, trade_price: int):
+    """Track position in USDC terms."""
+    cost = (trade_size * trade_price) / 1e12
+    self.position_usdc += cost
+    print(f"Position: ${self.position_usdc:.2f} USDC")
+
+def has_room_for_trade(self, trade_size: float, trade_price: int) -> bool:
+    """Check if trade fits within max position limit."""
+    cost = (trade_size * trade_price) / 1e12
+    return (self.position_usdc + cost) <= self.max_position
+```
+
+## Trading Signals
+
+The **trading signal** is the core creative decision in your bot. It determines when to buy YES, buy NO, or hold. Here are common strategies:
+
+### Price Action Strategy
+
+Trades based on the current BTC price vs. strike price. This is the recommended starting algorithm because it uses Pyth Network - the same oracle Turbine uses for resolution.
+
+```python
+import httpx
+
+PYTH_HERMES_URL = "https://hermes.pyth.network/v2/updates/price/latest"
+PYTH_BTC_FEED = "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
+
+async def fetch_pyth_price(self) -> float:
+    """Fetch real-time BTC price from Pyth Network."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            PYTH_HERMES_URL,
+            params={"ids[]": PYTH_BTC_FEED}
+        )
+        data = response.json()
+        price_data = data["parsed"][0]["price"]
+        price = int(price_data["price"]) * (10 ** price_data["expo"])
+        return price
+
+def calculate_signal(self, market: QuickMarket) -> str:
+    """Price action signal."""
+    current_price = await self.fetch_pyth_price()
+    strike = market.start_price / 1e6
+    
+    # Calculate deviation from strike
+    deviation_pct = ((current_price - strike) / strike) * 100
+    
+    # Confidence based on distance from strike
+    confidence = min(abs(deviation_pct) * 10, 0.9)
+    
+    if deviation_pct > 0.1 and confidence > MIN_CONFIDENCE:
+        return "BUY_YES"  # Price above strike
+    elif deviation_pct < -0.1 and confidence > MIN_CONFIDENCE:
+        return "BUY_NO"   # Price below strike
+    else:
+        return "HOLD"     # Too close to call
+```
+
+<Info>
+See the complete implementation in [`examples/price_action_bot.py`](https://github.com/ojo-network/turbine-py-client/blob/main/examples/price_action_bot.py)
+</Info>
+
+### Momentum Strategy
+
+Detects price direction from recent trades and follows the trend.
+
+```python
+def calculate_signal(self, market: QuickMarket) -> str:
+    """Momentum-based signal."""
+    # Get recent trades
+    trades = self.client.get_trades(market.market_id, limit=10)
+    
+    if len(trades) < 5:
+        return "HOLD"
+    
+    # Calculate price momentum
+    recent_prices = [t.price for t in trades[:5]]
+    older_prices = [t.price for t in trades[-5:]]
+    
+    recent_avg = sum(recent_prices) / len(recent_prices)
+    older_avg = sum(older_prices) / len(older_prices)
+    
+    momentum = (recent_avg - older_avg) / older_avg
+    
+    if momentum > 0.02:  # 2% upward momentum
+        return "BUY_YES"
+    elif momentum < -0.02:  # 2% downward momentum
+        return "BUY_NO"
+    else:
+        return "HOLD"
+```
+
+### Mean Reversion Strategy
+
+Fades large moves, betting on reversion to average.
+
+```python
+def calculate_signal(self, market: QuickMarket) -> str:
+    """Mean reversion signal."""
+    orderbook = self.client.get_orderbook(market.market_id)
+    
+    if not orderbook.bids or not orderbook.asks:
+        return "HOLD"
+    
+    # Calculate mid-price
+    best_bid = orderbook.bids[0].price
+    best_ask = orderbook.asks[0].price
+    mid_price = (best_bid + best_ask) / 2
+    
+    # Check deviation from 50%
+    deviation_from_fair = abs(mid_price - 500000)
+    
+    # Fade extremes (bet on reversion)
+    if mid_price > 650000:  # > 65%
+        return "BUY_NO"   # Bet on reversion down
+    elif mid_price < 350000:  # < 35%
+        return "BUY_YES"  # Bet on reversion up
+    else:
+        return "HOLD"
+```
+
+### Market Making Strategy
+
+Provides liquidity by placing both bid and ask orders with a spread.
+
+```python
+def calculate_signal(self, market: QuickMarket) -> dict:
+    """Market making signal - returns bid/ask prices."""
+    current_price = await self.fetch_pyth_price()
+    strike = market.start_price / 1e6
+    
+    # Calculate fair probability (simplified)
+    deviation = (current_price - strike) / strike
+    fair_prob = 0.5 + (deviation * 2)  # Linear approximation
+    fair_prob = max(0.1, min(0.9, fair_prob))  # Clamp
+    
+    # Convert to price and add spread
+    fair_price = int(fair_prob * 1_000_000)
+    spread = 20000  # 2% spread
+    
+    return {
+        "bid": fair_price - spread // 2,
+        "ask": fair_price + spread // 2,
+        "size": 1_000_000  # 1 share
+    }
+```
+
+<Info>
+See the complete market maker implementation in [`examples/market_maker.py`](https://github.com/ojo-network/turbine-py-client/blob/main/examples/market_maker.py)
+</Info>
+
+## Complete Bot Example
+
+Here's a minimal but complete trading bot:
+
+```python simple_bot.py
+import asyncio
+import os
+import time
+from dotenv import load_dotenv
+from turbine_client import TurbineClient, Outcome
+
+load_dotenv()
+
+class SimpleBot:
+    def __init__(self):
+        self.client = TurbineClient(
+            host="https://api.turbinefi.com",
+            chain_id=137,
+            private_key=os.getenv("TURBINE_PRIVATE_KEY"),
+        )
+        self.market_id = None
+        self.running = True
+        
+    async def run(self):
+        print(f"Bot started - {self.client.address}")
+        
+        while self.running:
+            try:
+                # Get current market
+                market = self.client.get_quick_market("BTC")
+                
+                # Handle market rotation
+                if market.market_id != self.market_id:
+                    print(f"New market: {market.question}")
+                    self.market_id = market.market_id
+                    
+                    # Approve USDC (first time only per settlement)
+                    try:
+                        result = self.client.approve_usdc_for_settlement(
+                            market.settlement_address
+                        )
+                        print(f"Approved USDC: {result['tx_hash']}")
+                        await asyncio.sleep(2)
+                    except Exception as e:
+                        print(f"Approval note: {e}")
+                
+                # Simple signal: buy YES if market < 50%, buy NO if > 50%
+                orderbook = self.client.get_orderbook(market.market_id)
+                if orderbook.bids and orderbook.asks:
+                    mid = (orderbook.bids[0].price + orderbook.asks[0].price) / 2
+                    
+                    if mid < 450000:  # < 45%
+                        # Buy YES
+                        order = self.client.create_limit_buy(
+                            market_id=market.market_id,
+                            outcome=Outcome.YES,
+                            price=int(mid + 10000),  # Just above mid
+                            size=1_000_000,  # 1 share
+                        )
+                        result = self.client.post_order(order)
+                        print(f"Bought YES: {result['orderHash'][:10]}...")
+                    
+                    elif mid > 550000:  # > 55%
+                        # Buy NO
+                        order = self.client.create_limit_buy(
+                            market_id=market.market_id,
+                            outcome=Outcome.NO,
+                            price=int((1_000_000 - mid) + 10000),
+                            size=1_000_000,
+                        )
+                        result = self.client.post_order(order)
+                        print(f"Bought NO: {result['orderHash'][:10]}...")
+                
+            except Exception as e:
+                print(f"Error: {e}")
+            
+            await asyncio.sleep(15)
+        
+        self.client.close()
+
+if __name__ == "__main__":
+    bot = SimpleBot()
+    try:
+        asyncio.run(bot.run())
+    except KeyboardInterrupt:
+        print("Bot stopped")
+        bot.running = False
+```
+
+## Best Practices
+
+### 1. Stop Trading Before Market Expiration
+
+```python
+def check_market_expiration(self, market: QuickMarket):
+    """Stop trading when < 60 seconds remain."""
+    time_remaining = market.end_time - time.time()
+    
+    if time_remaining < 60:
+        if not self.market_expiring:
+            print("Market expiring soon - pulling orders")
+            self.client.cancel_market_orders(market.market_id)
+            self.market_expiring = True
+        return True
+    return False
+```
+
+### 2. Handle API Errors Gracefully
+
+```python
+try:
+    result = self.client.post_order(order)
+except TurbineApiError as e:
+    if "insufficient allowance" in str(e).lower():
+        print("Need USDC approval")
+        await self.approve_usdc(market.settlement_address)
+    elif "minimum order size" in str(e).lower():
+        print("Order too small (min $1 for takers)")
+    else:
+        print(f"API error: {e}")
+```
+
+### 3. Claim Winnings Automatically
+
+```python
+async def claim_resolved_markets(self):
+    """Background task to claim from resolved markets."""
+    while self.running:
+        for market_id, contract_addr in self.traded_markets.items():
+            try:
+                # Check resolution status
+                resolution = self.client.get_resolution(market_id)
+                
+                if resolution and resolution.resolved:
+                    # Claim winnings
+                    result = self.client.claim_winnings(contract_addr)
+                    print(f"Claimed from {market_id[:10]}...: {result['tx_hash']}")
+                    
+                    # Remove from tracking
+                    del self.traded_markets[market_id]
+                    
+                    # Rate limit
+                    await asyncio.sleep(15)
+            except Exception as e:
+                print(f"Claim error for {market_id}: {e}")
+        
+        await asyncio.sleep(300)  # Check every 5 minutes
+```
+
+### 4. Log Important Events
+
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('bot.log'),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+# In your bot
+logger.info(f"Order placed: {order_hash}")
+logger.warning(f"Low USDC balance: ${balance}")
+logger.error(f"Failed to place order: {e}")
+```
+
+## Testing Your Bot
+
+Before running your bot with real money:
+
+1. **Start with small amounts** - Use `order_size=0.10` and `max_position=1.0` for testing
+2. **Monitor the first few cycles** - Watch how it handles market transitions
+3. **Check position tracking** - Verify USDC balances match your expectations
+4. **Test error recovery** - Kill the bot and restart to ensure it resumes correctly
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deploy to Production" icon="rocket" href="/guides/deployment">
+    Run your bot 24/7 on Railway
+  </Card>
+  <Card title="WebSocket Streams" icon="bolt" href="/guides/websocket-streams">
+    Use real-time data for faster execution
+  </Card>
+  <Card title="Market Data" icon="chart-line" href="/guides/market-data">
+    Access orderbooks and trading history
+  </Card>
+  <Card title="Example Bots" icon="code" href="https://github.com/ojo-network/turbine-py-client/tree/main/examples">
+    Browse production-ready bot implementations
+  </Card>
+</CardGroup>
